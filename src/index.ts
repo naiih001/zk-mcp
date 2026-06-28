@@ -20,11 +20,10 @@ function json(res: http.ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-async function readBody(req: http.IncomingMessage): Promise<unknown> {
+async function readBody(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString();
-  return raw ? JSON.parse(raw) : {};
+  return Buffer.concat(chunks).toString();
 }
 
 const httpServer = http.createServer(async (req, res) => {
@@ -57,7 +56,7 @@ const httpServer = http.createServer(async (req, res) => {
 
     // DCR — auto-approve any registration
     if (method === 'POST' && url.pathname === '/register') {
-      await readBody(req);
+      JSON.parse(await readBody(req));
       return json(res, 201, {
         client_id: 'zk-mcp',
         client_secret_expires_at: 0,
@@ -76,7 +75,7 @@ const httpServer = http.createServer(async (req, res) => {
 
     // Token exchange — issue a fake token
     if (method === 'POST' && url.pathname === '/token') {
-      await readBody(req);
+      new URLSearchParams(await readBody(req));
       return json(res, 200, {
         access_token: randomUUID(),
         token_type: 'Bearer',
