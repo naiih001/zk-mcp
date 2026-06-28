@@ -116,7 +116,7 @@ export function createServer(): McpServer {
       return { content: [{ type: 'text', text: 'No notes found' }] };
     }
     const lines = notes.map(n =>
-      `${n.id.slice(0, 8)}… | ${n.title} | ${n.updated_at.slice(0, 10)}`
+      `${n.id.slice(0, 8)}… | ${n.title} | ${(n.updated_at as unknown as Date).toISOString().slice(0, 10)}`
     );
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   });

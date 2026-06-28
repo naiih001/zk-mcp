@@ -5,8 +5,15 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
+    "start:local": "node build/local.js",
+    "start:remote": "node build/index.js",
     "dev": "tsx watch src/index.ts",
-    "migrate": "node --import tsx src/migrate.ts"
+    "dev:local": "tsx watch src/local.ts",
+    "dev:remote": "tsx watch src/index.ts",
+    "migrate": "node --import tsx src/migrate.ts",
+    "setup": "npm run migrate && npm start",
+    "setup:local": "npm run migrate && npm run start:local",
+    "setup:remote": "npm run migrate && npm run start:remote"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
