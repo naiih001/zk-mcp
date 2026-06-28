@@ -8,6 +8,14 @@
         "DATABASE_URL": "postgres://zk:zk@localhost:5432/zk_mcp"
       },
       "enabled": true
+    },
+    "render": {
+      "type": "remote",
+      "url": "https://mcp.render.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${RENDER_API_KEY}"
+      },
+      "enabled": true
     }
   }
 }
