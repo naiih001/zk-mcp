@@ -28,7 +28,8 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 
 const httpServer = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
+    const url = new URL(req.url ?? '/', `${proto}://${req.headers.host}`);
     const origin = `${url.protocol}//${url.host}`;
     const method = req.method ?? 'GET';
 
@@ -91,20 +92,11 @@ const httpServer = http.createServer(async (req, res) => {
 
     // MCP endpoint
     if (url.pathname === '/mcp') {
-      const authHeader = req.headers.authorization;
-
-      if (AUTH_TOKEN) {
-        if (authHeader !== `Bearer ${AUTH_TOKEN}`) {
-          res.writeHead(401, { 'WWW-Authenticate': `Bearer realm="${origin}/mcp"` });
-          return res.end();
-        }
-      } else if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        // Trigger OAuth discovery by returning 401 with WWW-Authenticate
+      if (AUTH_TOKEN && req.headers.authorization !== `Bearer ${AUTH_TOKEN}`) {
         res.writeHead(401, { 'WWW-Authenticate': `Bearer realm="${origin}/mcp"` });
         return res.end();
       }
 
-      // Accept any Bearer token after OAuth flow completes
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
       const body = Buffer.concat(chunks).toString();
