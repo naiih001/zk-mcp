@@ -15,6 +15,14 @@ const transport = new StreamableHTTPServerTransport({
 const server = createServer();
 await server.connect(transport);
 
+function ts() {
+  return new Date().toISOString().slice(11, 23);
+}
+
+function log(msg: string) {
+  console.error(`[${ts()}] ${msg}`);
+}
+
 function json(res: http.ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
@@ -27,14 +35,23 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 const httpServer = http.createServer(async (req, res) => {
-  try {
-    const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
-    const url = new URL(req.url ?? '/', `${proto}://${req.headers.host}`);
-    const origin = `${url.protocol}//${url.host}`;
-    const method = req.method ?? 'GET';
+  const start = Date.now();
+  const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
+  const url = new URL(req.url ?? '/', `${proto}://${req.headers.host}`);
+  const origin = `${url.protocol}//${url.host}`;
+  const method = req.method ?? 'GET';
+  const path = url.pathname;
 
+  const end = res.end.bind(res);
+  res.end = function (this: http.ServerResponse, ...args: unknown[]) {
+    log(`${method} ${path} → ${this.statusCode} (${Date.now() - start}ms)`);
+    return end.apply(this, args as Parameters<typeof end>);
+  } as typeof res.end;
+
+  try {
     // OAuth protected resource metadata (RFC 9728)
-    if (method === 'GET' && url.pathname === '/.well-known/oauth-protected-resource') {
+    if (method === 'GET' && path === '/.well-known/oauth-protected-resource') {
+      log('oauth: protected-resource metadata');
       return json(res, 200, {
         resource: `${origin}/mcp`,
         authorization_servers: [origin],
@@ -42,7 +59,8 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // OAuth authorization server metadata (RFC 8414)
-    if (method === 'GET' && url.pathname === '/.well-known/oauth-authorization-server') {
+    if (method === 'GET' && path === '/.well-known/oauth-authorization-server') {
+      log('oauth: authorization-server metadata');
       return json(res, 200, {
         issuer: origin,
         authorization_endpoint: `${origin}/authorize`,
@@ -56,7 +74,8 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // DCR — auto-approve any registration
-    if (method === 'POST' && url.pathname === '/register') {
+    if (method === 'POST' && path === '/register') {
+      log('oauth: dcr registration');
       JSON.parse(await readBody(req));
       return json(res, 201, {
         client_id: 'zk-mcp',
@@ -66,7 +85,8 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // Authorize — auto-redirect to claude.ai
-    if (method === 'GET' && url.pathname === '/authorize') {
+    if (method === 'GET' && path === '/authorize') {
+      log('oauth: authorize redirect');
       const redirectUri = url.searchParams.get('redirect_uri') || 'https://claude.ai/api/mcp/auth_callback';
       const state = url.searchParams.get('state') || '';
       const location = `${redirectUri}?code=${randomUUID()}&state=${encodeURIComponent(state)}`;
@@ -75,7 +95,8 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // Token exchange — issue a fake token
-    if (method === 'POST' && url.pathname === '/token') {
+    if (method === 'POST' && path === '/token') {
+      log('oauth: token exchange');
       new URLSearchParams(await readBody(req));
       return json(res, 200, {
         access_token: randomUUID(),
@@ -86,12 +107,15 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // Health check
-    if (url.pathname === '/health') {
+    if (path === '/health') {
       return json(res, 200, { status: 'ok' });
     }
 
     // MCP endpoint
-    if (url.pathname === '/mcp') {
+    if (path === '/mcp') {
+      const hasAuth = !!req.headers.authorization;
+      log(`mcp request${hasAuth ? ' (auth)' : ' (no auth)'}`);
+
       if (AUTH_TOKEN && req.headers.authorization !== `Bearer ${AUTH_TOKEN}`) {
         res.writeHead(401, { 'WWW-Authenticate': `Bearer realm="${origin}/mcp"` });
         return res.end();
@@ -106,7 +130,7 @@ const httpServer = http.createServer(async (req, res) => {
 
     res.writeHead(404).end('Not found');
   } catch (err) {
-    console.error('Request error:', err);
+    console.error(`[${new Date().toISOString().slice(11, 23)}] Request error:`, err);
     if (!res.headersSent) {
       res.writeHead(500).end('Internal server error');
     }
