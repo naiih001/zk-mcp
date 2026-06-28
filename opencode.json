@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "zk": {
+      "type": "local",
+      "command": ["node", "/home/nate/zk-mcp/build/local.js"],
+      "environment": {
+        "DATABASE_URL": "postgres://zk:zk@localhost:5432/zk_mcp"
+      },
+      "enabled": true
+    }
+  }
+}
