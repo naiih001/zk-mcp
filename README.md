@@ -7,7 +7,7 @@ A Zettelkasten note-taking system as an MCP (Model Context Protocol) server. Cre
 ```bash
 npm install
 cp .env.example .env   # edit DATABASE_URL
-npm run migrate         # create tables
+npm run migrate         # apply Prisma migrations
 npm run dev             # start on http://localhost:3100/mcp
 ```
 

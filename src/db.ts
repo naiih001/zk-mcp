@@ -1,180 +1,234 @@
-import pg from 'pg';
-import type { Note, Tag, NoteWithRelations, SearchResult } from './schema.js';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Prisma, PrismaClient } from './generated/prisma/client.js';
+import type { Note, NoteWithRelations, SearchResult } from './schema.js';
 
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 20,
-});
+const connectionString = process.env.DATABASE_URL;
 
-export async function query<T>(text: string, params?: unknown[]): Promise<T[]> {
-  const result = await pool.query(text, params);
-  return result.rows as T[];
+if (!connectionString) {
+  throw new Error('DATABASE_URL is required');
 }
 
-export async function queryOne<T>(text: string, params?: unknown[]): Promise<T | null> {
-  const rows = await query<T>(text, params);
-  return rows[0] ?? null;
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString }),
+});
+
+type PrismaNote = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toNote(note: PrismaNote): Note {
+  return {
+    id: note.id,
+    title: note.title,
+    body: note.body,
+    created_at: note.createdAt.toISOString(),
+    updated_at: note.updatedAt.toISOString(),
+  };
 }
 
 export async function createNote(title: string, body: string, tagNames?: string[]): Promise<Note> {
-  const note = await pool.query(
-    'INSERT INTO notes (title, body) VALUES ($1, $2) RETURNING *',
-    [title, body]
-  );
-  const n = note.rows[0];
-  if (tagNames && tagNames.length > 0) {
-    for (const name of tagNames) {
-      await pool.query(
-        `INSERT INTO tags (name) VALUES ($1)
-         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-         RETURNING *`,
-        [name]
-      );
-      await pool.query(
-        `INSERT INTO note_tags (note_id, tag_id)
-         SELECT $1, id FROM tags WHERE name = $2
-         ON CONFLICT DO NOTHING`,
-        [n.id, name]
-      );
+  const note = await prisma.$transaction(async tx => {
+    const created = await tx.note.create({
+      data: { title, body },
+    });
+
+    if (tagNames?.length) {
+      for (const name of tagNames) {
+        const tag = await tx.tag.upsert({
+          where: { name },
+          update: {},
+          create: { name },
+        });
+        await tx.noteTag.createMany({
+          data: [{ noteId: created.id, tagId: tag.id }],
+          skipDuplicates: true,
+        });
+      }
     }
-  }
-  return n;
+
+    return created;
+  });
+
+  return toNote(note);
 }
 
 export async function getNote(id: string): Promise<NoteWithRelations | null> {
-  const note = await queryOne<Note>('SELECT * FROM notes WHERE id = $1', [id]);
+  const note = await prisma.note.findUnique({
+    where: { id },
+    include: {
+      tags: {
+        include: { tag: true },
+        orderBy: { tag: { name: 'asc' } },
+      },
+      links: {
+        include: { target: { select: { id: true, title: true } } },
+        orderBy: { target: { title: 'asc' } },
+      },
+      backlinks: {
+        include: { source: { select: { id: true, title: true } } },
+        orderBy: { source: { title: 'asc' } },
+      },
+    },
+  });
   if (!note) return null;
 
-  const tags = await query<Tag>(
-    `SELECT t.name FROM tags t
-     JOIN note_tags nt ON nt.tag_id = t.id
-     WHERE nt.note_id = $1
-     ORDER BY t.name`,
-    [id]
-  );
-
-  const links = await query<{ id: string; title: string }>(
-    `SELECT n.id, n.title FROM notes n
-     JOIN links l ON l.target_note_id = n.id
-     WHERE l.source_note_id = $1
-     ORDER BY n.title`,
-    [id]
-  );
-
-  const backlinks = await query<{ id: string; title: string }>(
-    `SELECT n.id, n.title FROM notes n
-     JOIN links l ON l.source_note_id = n.id
-     WHERE l.target_note_id = $1
-     ORDER BY n.title`,
-    [id]
-  );
-
   return {
-    ...note,
-    tags: tags.map(t => t.name),
-    links,
-    backlinks,
+    ...toNote(note),
+    tags: note.tags.map(noteTag => noteTag.tag.name),
+    links: note.links.map(link => link.target),
+    backlinks: note.backlinks.map(link => link.source),
   };
 }
 
 export async function updateNote(id: string, title?: string, body?: string): Promise<Note | null> {
-  const sets: string[] = [];
-  const params: unknown[] = [];
-  let idx = 1;
+  const data: Prisma.NoteUpdateInput = {};
+  if (title !== undefined) data.title = title;
+  if (body !== undefined) data.body = body;
+  if (Object.keys(data).length === 0) return null;
 
-  if (title !== undefined) { sets.push(`title = $${idx++}`); params.push(title); }
-  if (body !== undefined) { sets.push(`body = $${idx++}`); params.push(body); }
-  if (sets.length === 0) return null;
-
-  sets.push(`updated_at = now()`);
-  params.push(id);
-  return queryOne<Note>(
-    `UPDATE notes SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
-    params
-  );
+  try {
+    const note = await prisma.note.update({
+      where: { id },
+      data,
+    });
+    return toNote(note);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function deleteNote(id: string): Promise<boolean> {
-  const r = await pool.query('DELETE FROM notes WHERE id = $1', [id]);
-  return (r.rowCount ?? 0) > 0;
+  try {
+    await prisma.note.delete({ where: { id } });
+    return true;
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      return false;
+    }
+    throw err;
+  }
 }
 
 export async function searchNotes(queryStr: string): Promise<SearchResult[]> {
-  return query<SearchResult>(
-    `SELECT id, title, body,
-            ts_rank(search, plainto_tsquery('english', $1)) as rank,
-            updated_at
-     FROM notes
-     WHERE search @@ plainto_tsquery('english', $1)
-     ORDER BY rank DESC
-     LIMIT 50`,
-    [queryStr]
-  );
+  const rows = await prisma.$queryRaw<{
+    id: string;
+    title: string;
+    body: string;
+    rank: number;
+    updated_at: Date;
+  }[]>`
+    SELECT id, title, body,
+           ts_rank(search, plainto_tsquery('english', ${queryStr})) as rank,
+           updated_at
+    FROM notes
+    WHERE search @@ plainto_tsquery('english', ${queryStr})
+    ORDER BY rank DESC
+    LIMIT 50
+  `;
+
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    rank: row.rank,
+    updated_at: row.updated_at.toISOString(),
+  }));
 }
 
 export async function listNotes(tag?: string, limit = 50, offset = 0): Promise<Note[]> {
-  if (tag) {
-    return query<Note>(
-      `SELECT n.* FROM notes n
-       JOIN note_tags nt ON nt.note_id = n.id
-       JOIN tags t ON t.id = nt.tag_id
-       WHERE t.name = $1
-       ORDER BY n.updated_at DESC
-       LIMIT $2 OFFSET $3`,
-      [tag, limit, offset]
-    );
-  }
-  return query<Note>(
-    'SELECT * FROM notes ORDER BY updated_at DESC LIMIT $1 OFFSET $2',
-    [limit, offset]
-  );
+  const notes = await prisma.note.findMany({
+    where: tag ? { tags: { some: { tag: { name: tag } } } } : undefined,
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+    skip: offset,
+  });
+  return notes.map(toNote);
 }
 
 export async function linkNotes(sourceId: string, targetId: string): Promise<boolean> {
   try {
-    await pool.query(
-      'INSERT INTO links (source_note_id, target_note_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [sourceId, targetId]
-    );
+    await prisma.link.create({
+      data: {
+        sourceNoteId: sourceId,
+        targetNoteId: targetId,
+      },
+    });
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2003', 'P2004'].includes(err.code)) {
+      return false;
+    }
+    throw err;
   }
 }
 
 export async function getBacklinks(noteId: string): Promise<{ id: string; title: string }[]> {
-  return query<{ id: string; title: string }>(
-    `SELECT n.id, n.title FROM notes n
-     JOIN links l ON l.source_note_id = n.id
-     WHERE l.target_note_id = $1
-     ORDER BY n.title`,
-    [noteId]
-  );
+  const links = await prisma.link.findMany({
+    where: { targetNoteId: noteId },
+    include: { source: { select: { id: true, title: true } } },
+    orderBy: { source: { title: 'asc' } },
+  });
+  return links.map(link => link.source);
 }
 
 export async function addTag(noteId: string, tagName: string): Promise<boolean> {
-  await pool.query(
-    `INSERT INTO tags (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
-    [tagName]
-  );
-  const r = await pool.query(
-    `INSERT INTO note_tags (note_id, tag_id)
-     SELECT $1, id FROM tags WHERE name = $2
-     ON CONFLICT DO NOTHING`,
-    [noteId, tagName]
-  );
-  return (r.rowCount ?? 0) > 0;
+  try {
+    const tag = await prisma.tag.upsert({
+      where: { name: tagName },
+      update: {},
+      create: { name: tagName },
+    });
+    await prisma.noteTag.create({
+      data: {
+        noteId,
+        tagId: tag.id,
+      },
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2003'].includes(err.code)) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 export async function removeTag(noteId: string, tagName: string): Promise<boolean> {
-  const r = await pool.query(
-    `DELETE FROM note_tags WHERE note_id = $1 AND tag_id IN (SELECT id FROM tags WHERE name = $2)`,
-    [noteId, tagName]
-  );
-  return (r.rowCount ?? 0) > 0;
+  const tag = await prisma.tag.findUnique({
+    where: { name: tagName },
+    select: { id: true },
+  });
+  if (!tag) return false;
+
+  try {
+    await prisma.noteTag.delete({
+      where: {
+        noteId_tagId: {
+          noteId,
+          tagId: tag.id,
+        },
+      },
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      return false;
+    }
+    throw err;
+  }
 }
 
 export async function getAllTags(): Promise<string[]> {
-  const rows = await query<{ name: string }>('SELECT name FROM tags ORDER BY name');
-  return rows.map(r => r.name);
+  const tags = await prisma.tag.findMany({
+    orderBy: { name: 'asc' },
+    select: { name: true },
+  });
+  return tags.map(tag => tag.name);
 }

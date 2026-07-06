@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Note {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String   @db.Text
+  body      String   @default("") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tags      NoteTag[] @relation("NoteToNoteTags")
+  links     Link[]    @relation("SourceNoteLinks")
+  backlinks Link[]    @relation("TargetNoteLinks")
+
+  @@index([updatedAt(sort: Desc)], map: "idx_notes_updated_at")
+  @@map("notes")
+}
+
+model Tag {
+  id    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name  String    @unique @db.Text
+  notes NoteTag[] @relation("TagToNoteTags")
+
+  @@map("tags")
+}
+
+model NoteTag {
+  noteId String @map("note_id") @db.Uuid
+  tagId  String @map("tag_id") @db.Uuid
+
+  note Note @relation("NoteToNoteTags", fields: [noteId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation("TagToNoteTags", fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, tagId])
+  @@index([tagId], map: "idx_note_tags_tag")
+  @@map("note_tags")
+}
+
+model Link {
+  sourceNoteId String   @map("source_note_id") @db.Uuid
+  targetNoteId String   @map("target_note_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  source Note @relation("SourceNoteLinks", fields: [sourceNoteId], references: [id], onDelete: Cascade)
+  target Note @relation("TargetNoteLinks", fields: [targetNoteId], references: [id], onDelete: Cascade)
+
+  @@id([sourceNoteId, targetNoteId])
+  @@index([targetNoteId], map: "idx_links_target")
+  @@map("links")
+}

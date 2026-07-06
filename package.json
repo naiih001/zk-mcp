@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
+    "prisma:generate": "prisma generate",
     "test": "node --import tsx --test test/*.test.ts",
     "start": "node build/index.js",
     "start:local": "node build/local.js",
@@ -11,21 +12,22 @@
     "dev": "tsx watch src/index.ts",
     "dev:local": "tsx watch src/local.ts",
     "dev:remote": "tsx watch src/index.ts",
-    "migrate": "node --import tsx src/migrate.ts",
+    "migrate": "prisma migrate deploy",
     "setup": "npm run migrate && npm start",
     "setup:local": "npm run migrate && npm run start:local",
     "setup:remote": "npm run migrate && npm run start:remote"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "dotenv": "^16.4.7",
-    "pg": "^8.14.1",
-    "uuid": "^11.1.0"
+    "pg": "^8.14.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.1",
     "@types/pg": "^8.11.11",
-    "@types/uuid": "^10.0.0",
+    "prisma": "^7.8.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3"
   }

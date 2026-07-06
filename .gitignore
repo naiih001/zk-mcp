@@ -4,3 +4,4 @@ dist/
 .env
 *.tsbuildinfo
 opencode.json
+src/generated/prisma/

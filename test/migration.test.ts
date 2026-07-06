@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const migration = readFileSync(join(process.cwd(), 'migrations', '001_initial.sql'), 'utf-8');
+const migration = readFileSync(
+  join(process.cwd(), 'prisma', 'migrations', '20260706000000_initial', 'migration.sql'),
+  'utf-8',
+);
 
 test('initial migration enables UUID generation', () => {
   assert.match(migration, /CREATE EXTENSION IF NOT EXISTS pgcrypto;/);
