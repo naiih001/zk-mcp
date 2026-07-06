@@ -1,6 +1,13 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import * as db from './db.js';
+import {
+  formatBacklinks,
+  formatNoteDetail,
+  formatNoteList,
+  formatNoteMarkdown,
+  formatSearchResults,
+} from './format.js';
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -41,18 +48,7 @@ export function createServer(): McpServer {
     if (!note) {
       return { content: [{ type: 'text', text: 'Note not found' }], isError: true };
     }
-    const parts = [
-      `# ${note.title}`,
-      ``,
-      note.body,
-      ``,
-      `Tags: ${note.tags.join(', ') || '(none)'}`,
-      `Links: ${note.links.map(l => l.title).join(', ') || '(none)'}`,
-      `Backlinks: ${note.backlinks.map(l => l.title).join(', ') || '(none)'}`,
-      `Created: ${note.created_at}`,
-      `Updated: ${note.updated_at}`,
-    ];
-    return { content: [{ type: 'text', text: parts.join('\n') }] };
+    return { content: [{ type: 'text', text: formatNoteDetail(note) }] };
   });
 
   server.registerTool('update_note', {
@@ -93,13 +89,7 @@ export function createServer(): McpServer {
     },
   }, async ({ query }) => {
     const results = await db.searchNotes(query);
-    if (results.length === 0) {
-      return { content: [{ type: 'text', text: 'No results found' }] };
-    }
-    const lines = results.map((r, i) =>
-      `${i + 1}. ${r.title} (score: ${r.rank.toFixed(2)})`
-    );
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    return { content: [{ type: 'text', text: formatSearchResults(results) }] };
   });
 
   server.registerTool('list_notes', {
@@ -112,13 +102,7 @@ export function createServer(): McpServer {
     },
   }, async ({ tag, limit, offset }) => {
     const notes = await db.listNotes(tag, limit, offset);
-    if (notes.length === 0) {
-      return { content: [{ type: 'text', text: 'No notes found' }] };
-    }
-    const lines = notes.map(n =>
-      `${n.id.slice(0, 8)}… | ${n.title} | ${(n.updated_at as unknown as Date).toISOString().slice(0, 10)}`
-    );
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    return { content: [{ type: 'text', text: formatNoteList(notes) }] };
   });
 
   server.registerTool('link_notes', {
@@ -144,11 +128,7 @@ export function createServer(): McpServer {
     },
   }, async ({ id }) => {
     const backlinks = await db.getBacklinks(id);
-    if (backlinks.length === 0) {
-      return { content: [{ type: 'text', text: 'No backlinks found' }] };
-    }
-    const lines = backlinks.map(b => `${b.id.slice(0, 8)}… | ${b.title}`);
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    return { content: [{ type: 'text', text: formatBacklinks(backlinks) }] };
   });
 
   server.registerTool('add_tag', {
@@ -204,25 +184,8 @@ export function createServer(): McpServer {
       if (!note) {
         throw new Error(`Note ${id} not found`);
       }
-      const md = [
-        `# ${note.title}`,
-        ``,
-        note.body,
-        ``,
-        `---`,
-        `Tags: ${note.tags.join(', ') || '(none)'}`,
-        ``,
-        `## Links`,
-        ...note.links.map(l => `- [[${l.title}]] (zk://notes/${l.id})`),
-        ``,
-        `## Backlinks`,
-        ...note.backlinks.map(l => `- [[${l.title}]] (zk://notes/${l.id})`),
-        ``,
-        `_Created: ${note.created_at}_`,
-        `_Updated: ${note.updated_at}_`,
-      ].join('\n');
       return {
-        contents: [{ uri: uri.href, mimeType: 'text/markdown', text: md }],
+        contents: [{ uri: uri.href, mimeType: 'text/markdown', text: formatNoteMarkdown(note) }],
       };
     }
   );
