@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "test": "node --import tsx --test test/*.test.ts",
     "start": "node build/index.js",
     "start:local": "node build/local.js",
     "start:remote": "node build/index.js",

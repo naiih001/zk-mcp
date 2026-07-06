@@ -3,6 +3,14 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from './server.js';
+import {
+  authorizationRedirectLocation,
+  authorizationServerMetadata,
+  getRequestOrigin,
+  isAuthorized,
+  protectedResourceMetadata,
+  tokenResponse,
+} from './http.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -36,9 +44,8 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
 
 const httpServer = http.createServer(async (req, res) => {
   const start = Date.now();
-  const proto = (req.headers['x-forwarded-proto'] as string) || 'http';
-  const url = new URL(req.url ?? '/', `${proto}://${req.headers.host}`);
-  const origin = `${url.protocol}//${url.host}`;
+  const origin = getRequestOrigin(req.url, req.headers);
+  const url = new URL(req.url ?? '/', origin);
   const method = req.method ?? 'GET';
   const path = url.pathname;
 
@@ -52,25 +59,13 @@ const httpServer = http.createServer(async (req, res) => {
     // OAuth protected resource metadata (RFC 9728)
     if (method === 'GET' && path === '/.well-known/oauth-protected-resource') {
       log('oauth: protected-resource metadata');
-      return json(res, 200, {
-        resource: `${origin}/mcp`,
-        authorization_servers: [origin],
-      });
+      return json(res, 200, protectedResourceMetadata(origin));
     }
 
     // OAuth authorization server metadata (RFC 8414)
     if (method === 'GET' && path === '/.well-known/oauth-authorization-server') {
       log('oauth: authorization-server metadata');
-      return json(res, 200, {
-        issuer: origin,
-        authorization_endpoint: `${origin}/authorize`,
-        token_endpoint: `${origin}/token`,
-        registration_endpoint: `${origin}/register`,
-        response_types_supported: ['code'],
-        grant_types_supported: ['authorization_code', 'refresh_token'],
-        code_challenge_methods_supported: ['S256'],
-        token_endpoint_auth_methods_supported: ['none'],
-      });
+      return json(res, 200, authorizationServerMetadata(origin));
     }
 
     // DCR — auto-approve any registration
@@ -87,9 +82,11 @@ const httpServer = http.createServer(async (req, res) => {
     // Authorize — auto-redirect to claude.ai
     if (method === 'GET' && path === '/authorize') {
       log('oauth: authorize redirect');
-      const redirectUri = url.searchParams.get('redirect_uri') || 'https://claude.ai/api/mcp/auth_callback';
-      const state = url.searchParams.get('state') || '';
-      const location = `${redirectUri}?code=${randomUUID()}&state=${encodeURIComponent(state)}`;
+      const location = authorizationRedirectLocation(
+        url,
+        'https://claude.ai/api/mcp/auth_callback',
+        randomUUID(),
+      );
       res.writeHead(302, { Location: location });
       return res.end();
     }
@@ -98,12 +95,7 @@ const httpServer = http.createServer(async (req, res) => {
     if (method === 'POST' && path === '/token') {
       log('oauth: token exchange');
       new URLSearchParams(await readBody(req));
-      return json(res, 200, {
-        access_token: randomUUID(),
-        token_type: 'Bearer',
-        expires_in: 86400,
-        refresh_token: randomUUID(),
-      });
+      return json(res, 200, tokenResponse(randomUUID(), randomUUID()));
     }
 
     // Health check
@@ -116,7 +108,7 @@ const httpServer = http.createServer(async (req, res) => {
       const hasAuth = !!req.headers.authorization;
       log(`mcp request${hasAuth ? ' (auth)' : ' (no auth)'}`);
 
-      if (AUTH_TOKEN && req.headers.authorization !== `Bearer ${AUTH_TOKEN}`) {
+      if (!isAuthorized(req.headers.authorization, AUTH_TOKEN)) {
         res.writeHead(401, { 'WWW-Authenticate': `Bearer realm="${origin}/mcp"` });
         return res.end();
       }
