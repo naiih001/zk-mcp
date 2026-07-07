@@ -54,7 +54,7 @@ export function formatNoteList(notes: Note[]): string {
   }
   return notes.map(n => {
     const updatedAt = new Date(n.updated_at).toISOString().slice(0, 10);
-    return `${n.id.slice(0, 8)}... | ${n.title} | ${updatedAt}`;
+    return `${n.id} | ${n.title} | ${updatedAt}`;
   }).join('\n');
 }
 
