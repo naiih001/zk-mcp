@@ -12,6 +12,7 @@ import {
   parseAllowedRedirectOrigins,
   parseJsonObject,
   protectedResourceMetadata,
+  shouldExposeOAuth,
   tokenResponse,
 } from './http.js';
 
@@ -19,6 +20,7 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const ALLOWED_REDIRECT_ORIGINS = parseAllowedRedirectOrigins(process.env.OAUTH_ALLOWED_REDIRECT_ORIGINS);
+const EXPOSE_OAUTH = shouldExposeOAuth(AUTH_TOKEN);
 
 const transport = new StreamableHTTPServerTransport({
   sessionIdGenerator: () => randomUUID(),
@@ -61,19 +63,19 @@ const httpServer = http.createServer(async (req, res) => {
 
   try {
     // OAuth protected resource metadata (RFC 9728)
-    if (method === 'GET' && path === '/.well-known/oauth-protected-resource') {
+    if (EXPOSE_OAUTH && method === 'GET' && path === '/.well-known/oauth-protected-resource') {
       log('oauth: protected-resource metadata');
       return json(res, 200, protectedResourceMetadata(origin));
     }
 
     // OAuth authorization server metadata (RFC 8414)
-    if (method === 'GET' && path === '/.well-known/oauth-authorization-server') {
+    if (EXPOSE_OAUTH && method === 'GET' && path === '/.well-known/oauth-authorization-server') {
       log('oauth: authorization-server metadata');
       return json(res, 200, authorizationServerMetadata(origin));
     }
 
     // DCR — auto-approve any registration
-    if (method === 'POST' && path === '/register') {
+    if (EXPOSE_OAUTH && method === 'POST' && path === '/register') {
       log('oauth: dcr registration');
       if (!parseJsonObject(await readBody(req))) {
         return json(res, 400, { error: 'invalid_client_metadata' });
@@ -86,7 +88,7 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // Authorize — auto-redirect to claude.ai
-    if (method === 'GET' && path === '/authorize') {
+    if (EXPOSE_OAUTH && method === 'GET' && path === '/authorize') {
       log('oauth: authorize redirect');
       const location = authorizationRedirectLocation(
         url,
@@ -102,7 +104,7 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     // Token exchange — issue the configured MCP bearer token when present.
-    if (method === 'POST' && path === '/token') {
+    if (EXPOSE_OAUTH && method === 'POST' && path === '/token') {
       log('oauth: token exchange');
       const body = await readBody(req);
       const params = new URLSearchParams(body);

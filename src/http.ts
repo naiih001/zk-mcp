@@ -10,6 +10,10 @@ export function isAuthorized(authorizationHeader: string | undefined, authToken:
   return !authToken || authorizationHeader === `Bearer ${authToken}`;
 }
 
+export function shouldExposeOAuth(authToken: string | undefined): boolean {
+  return !!authToken;
+}
+
 export function protectedResourceMetadata(origin: string) {
   return {
     resource: `${origin}/mcp`,

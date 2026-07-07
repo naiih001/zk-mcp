@@ -9,6 +9,7 @@ import {
   getRequestOrigin,
   isAuthorized,
   protectedResourceMetadata,
+  shouldExposeOAuth,
   tokenResponse,
 } from '../src/http.js';
 
@@ -40,6 +41,12 @@ test('isAuthorized requires exact bearer token when auth token is configured', (
   assert.equal(isAuthorized('Bearer secret', 'secret'), true);
   assert.equal(isAuthorized('Bearer wrong', 'secret'), false);
   assert.equal(isAuthorized(undefined, 'secret'), false);
+});
+
+test('shouldExposeOAuth advertises OAuth only for protected deployments', () => {
+  assert.equal(shouldExposeOAuth(undefined), false);
+  assert.equal(shouldExposeOAuth(''), false);
+  assert.equal(shouldExposeOAuth('secret'), true);
 });
 
 test('OAuth metadata is derived from the request origin', () => {
