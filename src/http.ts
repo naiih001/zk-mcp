@@ -30,10 +30,59 @@ export function authorizationServerMetadata(origin: string) {
   };
 }
 
-export function authorizationRedirectLocation(url: URL, fallbackRedirectUri: string, code: string): string {
+export function parseAllowedRedirectOrigins(value: string | undefined): string[] {
+  const origins = (value ?? 'https://claude.ai')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+    .flatMap(origin => {
+      try {
+        const url = new URL(origin);
+        return url.protocol === 'https:' ? [`${url.protocol}//${url.host}`] : [];
+      } catch {
+        return [];
+      }
+    });
+
+  return [...new Set(origins)];
+}
+
+export function authorizationRedirectLocation(
+  url: URL,
+  fallbackRedirectUri: string,
+  code: string,
+  allowedRedirectOrigins = parseAllowedRedirectOrigins(undefined),
+): string | null {
   const redirectUri = url.searchParams.get('redirect_uri') || fallbackRedirectUri;
-  const state = url.searchParams.get('state') || '';
-  return `${redirectUri}?code=${code}&state=${encodeURIComponent(state)}`;
+  let redirectUrl: URL;
+  try {
+    redirectUrl = new URL(redirectUri);
+  } catch {
+    return null;
+  }
+
+  if (redirectUrl.protocol !== 'https:' || !allowedRedirectOrigins.includes(redirectUrl.origin)) {
+    return null;
+  }
+
+  redirectUrl.searchParams.set('code', code);
+  redirectUrl.searchParams.set('state', url.searchParams.get('state') || '');
+  return redirectUrl.toString();
+}
+
+export function oauthAccessToken(authToken: string | undefined, generatedToken: string): string {
+  return authToken || generatedToken;
+}
+
+export function parseJsonObject(body: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function tokenResponse(accessToken: string, refreshToken: string) {

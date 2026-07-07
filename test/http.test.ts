@@ -3,6 +3,9 @@ import test from 'node:test';
 import {
   authorizationRedirectLocation,
   authorizationServerMetadata,
+  oauthAccessToken,
+  parseAllowedRedirectOrigins,
+  parseJsonObject,
   getRequestOrigin,
   isAuthorized,
   protectedResourceMetadata,
@@ -57,12 +60,12 @@ test('OAuth metadata is derived from the request origin', () => {
   });
 });
 
-test('authorizationRedirectLocation preserves redirect URI and encoded state', () => {
-  const url = new URL('https://zk.example.com/authorize?redirect_uri=https://claude.ai/callback&state=a b+c');
+test('authorizationRedirectLocation preserves the allowed Claude redirect URI and encoded state', () => {
+  const url = new URL('https://zk.example.com/authorize?redirect_uri=https://claude.ai/api/mcp/auth_callback&state=a b+c');
 
   assert.equal(
     authorizationRedirectLocation(url, 'https://fallback.example.com/callback', 'code-123'),
-    'https://claude.ai/callback?code=code-123&state=a%20b%20c',
+    'https://claude.ai/api/mcp/auth_callback?code=code-123&state=a+b+c',
   );
 });
 
@@ -73,6 +76,46 @@ test('authorizationRedirectLocation falls back to claude callback when redirect 
     authorizationRedirectLocation(url, 'https://claude.ai/api/mcp/auth_callback', 'code-123'),
     'https://claude.ai/api/mcp/auth_callback?code=code-123&state=abc',
   );
+});
+
+test('authorizationRedirectLocation rejects untrusted redirect origins', () => {
+  const url = new URL('https://zk.example.com/authorize?redirect_uri=https://attacker.example.com/callback');
+
+  assert.equal(
+    authorizationRedirectLocation(url, 'https://claude.ai/api/mcp/auth_callback', 'code-123'),
+    null,
+  );
+});
+
+test('authorizationRedirectLocation requires https redirect URIs', () => {
+  const url = new URL('https://zk.example.com/authorize?redirect_uri=http://claude.ai/api/mcp/auth_callback');
+
+  assert.equal(
+    authorizationRedirectLocation(url, 'https://claude.ai/api/mcp/auth_callback', 'code-123'),
+    null,
+  );
+});
+
+test('parseAllowedRedirectOrigins defaults to Claude web', () => {
+  assert.deepEqual(parseAllowedRedirectOrigins(undefined), ['https://claude.ai']);
+});
+
+test('parseAllowedRedirectOrigins accepts comma-separated HTTPS origins', () => {
+  assert.deepEqual(
+    parseAllowedRedirectOrigins('https://claude.ai, https://example.com/path, not-a-url, http://insecure.example.com'),
+    ['https://claude.ai', 'https://example.com'],
+  );
+});
+
+test('oauthAccessToken uses the configured auth token when present', () => {
+  assert.equal(oauthAccessToken('configured-secret', 'generated-token'), 'configured-secret');
+  assert.equal(oauthAccessToken(undefined, 'generated-token'), 'generated-token');
+});
+
+test('parseJsonObject accepts only valid JSON objects', () => {
+  assert.deepEqual(parseJsonObject('{"client_name":"Claude"}'), { client_name: 'Claude' });
+  assert.equal(parseJsonObject('not-json'), null);
+  assert.equal(parseJsonObject('[]'), null);
 });
 
 test('tokenResponse returns bearer token payload expected by OAuth clients', () => {

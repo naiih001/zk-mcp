@@ -8,6 +8,9 @@ import {
   authorizationServerMetadata,
   getRequestOrigin,
   isAuthorized,
+  oauthAccessToken,
+  parseAllowedRedirectOrigins,
+  parseJsonObject,
   protectedResourceMetadata,
   tokenResponse,
 } from './http.js';
@@ -15,6 +18,7 @@ import {
 const PORT = parseInt(process.env.PORT || '3100', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
+const ALLOWED_REDIRECT_ORIGINS = parseAllowedRedirectOrigins(process.env.OAUTH_ALLOWED_REDIRECT_ORIGINS);
 
 const transport = new StreamableHTTPServerTransport({
   sessionIdGenerator: () => randomUUID(),
@@ -71,7 +75,9 @@ const httpServer = http.createServer(async (req, res) => {
     // DCR — auto-approve any registration
     if (method === 'POST' && path === '/register') {
       log('oauth: dcr registration');
-      JSON.parse(await readBody(req));
+      if (!parseJsonObject(await readBody(req))) {
+        return json(res, 400, { error: 'invalid_client_metadata' });
+      }
       return json(res, 201, {
         client_id: 'zk-mcp',
         client_secret_expires_at: 0,
@@ -86,16 +92,24 @@ const httpServer = http.createServer(async (req, res) => {
         url,
         'https://claude.ai/api/mcp/auth_callback',
         randomUUID(),
+        ALLOWED_REDIRECT_ORIGINS,
       );
+      if (!location) {
+        return json(res, 403, { error: 'invalid_redirect_uri' });
+      }
       res.writeHead(302, { Location: location });
       return res.end();
     }
 
-    // Token exchange — issue a fake token
+    // Token exchange — issue the configured MCP bearer token when present.
     if (method === 'POST' && path === '/token') {
       log('oauth: token exchange');
-      new URLSearchParams(await readBody(req));
-      return json(res, 200, tokenResponse(randomUUID(), randomUUID()));
+      const body = await readBody(req);
+      const params = new URLSearchParams(body);
+      if (!params.get('grant_type')) {
+        return json(res, 400, { error: 'invalid_request' });
+      }
+      return json(res, 200, tokenResponse(oauthAccessToken(AUTH_TOKEN, randomUUID()), randomUUID()));
     }
 
     // Health check

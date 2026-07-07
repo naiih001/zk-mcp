@@ -60,6 +60,7 @@ Resources support `list` — MCP clients can discover all notes without knowing 
 | `PORT` | `3100` | HTTP server port |
 | `HOST` | `0.0.0.0` | HTTP server bind address |
 | `AUTH_TOKEN` | — | If set, requires this Bearer token on all /mcp requests |
+| `OAUTH_ALLOWED_REDIRECT_ORIGINS` | `https://claude.ai` | Comma-separated HTTPS origins allowed for OAuth redirects |
 
 ## Database Schema
 
@@ -123,5 +124,8 @@ The claude.ai custom connector flow tries OAuth discovery against every remote M
 2. Enter URL: `https://your-app.onrender.com/mcp`
 3. Leave OAuth fields blank
 4. Click Connect — your browser opens and immediately closes (auto-redirect), then the connector shows "Connected"
+5. Enable the connector in a chat from the `+` menu
 
-This works around [known claude.ai issue #402](https://github.com/anthropics/claude-ai-mcp/issues/402) — the broker doesn't support authless servers natively. The fake OAuth runs on `/.well-known/oauth-*`, `/register`, `/authorize`, and `/token` endpoints alongside the MCP endpoint.
+For protected deployments, set `AUTH_TOKEN`. The OAuth token endpoint returns that same bearer token so Claude web can authorize calls to `/mcp`. OAuth redirects are restricted to `https://claude.ai` by default; add other HTTPS origins with `OAUTH_ALLOWED_REDIRECT_ORIGINS` only when connecting other trusted MCP clients.
+
+This works around [known claude.ai issue #402](https://github.com/anthropics/claude-ai-mcp/issues/402) — the broker doesn't support authless servers natively. The OAuth compatibility endpoints run on `/.well-known/oauth-*`, `/register`, `/authorize`, and `/token` alongside the MCP endpoint.
