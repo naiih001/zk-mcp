@@ -12,6 +12,32 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString }),
 });
 
+type ExpectedPrismaCode = 'P2002' | 'P2003' | 'P2004' | 'P2025';
+
+export class DatabaseOperationError extends Error {
+  constructor(operation: string, cause: unknown) {
+    super(`Database operation failed: ${operation}`, { cause });
+    this.name = 'DatabaseOperationError';
+  }
+}
+
+export function isExpectedPrismaError(err: unknown, codes: readonly ExpectedPrismaCode[]): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && codes.includes(err.code as ExpectedPrismaCode);
+}
+
+export function handleDatabaseError<T>(
+  operation: string,
+  err: unknown,
+  expectedCodes: readonly ExpectedPrismaCode[],
+  fallback: T,
+): T {
+  if (isExpectedPrismaError(err, expectedCodes)) {
+    return fallback;
+  }
+
+  throw new DatabaseOperationError(operation, err);
+}
+
 type PrismaNote = {
   id: string;
   title: string;
@@ -31,57 +57,65 @@ function toNote(note: PrismaNote): Note {
 }
 
 export async function createNote(title: string, body: string, tagNames?: string[]): Promise<Note> {
-  const note = await prisma.$transaction(async tx => {
-    const created = await tx.note.create({
-      data: { title, body },
+  try {
+    const note = await prisma.$transaction(async tx => {
+      const created = await tx.note.create({
+        data: { title, body },
+      });
+
+      if (tagNames?.length) {
+        for (const name of tagNames) {
+          const tag = await tx.tag.upsert({
+            where: { name },
+            update: {},
+            create: { name },
+          });
+          await tx.noteTag.createMany({
+            data: [{ noteId: created.id, tagId: tag.id }],
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      return created;
     });
 
-    if (tagNames?.length) {
-      for (const name of tagNames) {
-        const tag = await tx.tag.upsert({
-          where: { name },
-          update: {},
-          create: { name },
-        });
-        await tx.noteTag.createMany({
-          data: [{ noteId: created.id, tagId: tag.id }],
-          skipDuplicates: true,
-        });
-      }
-    }
-
-    return created;
-  });
-
-  return toNote(note);
+    return toNote(note);
+  } catch (err) {
+    return handleDatabaseError('createNote', err, [], undefined as never);
+  }
 }
 
 export async function getNote(id: string): Promise<NoteWithRelations | null> {
-  const note = await prisma.note.findUnique({
-    where: { id },
-    include: {
-      tags: {
-        include: { tag: true },
-        orderBy: { tag: { name: 'asc' } },
+  try {
+    const note = await prisma.note.findUnique({
+      where: { id },
+      include: {
+        tags: {
+          include: { tag: true },
+          orderBy: { tag: { name: 'asc' } },
+        },
+        links: {
+          include: { target: { select: { id: true, title: true } } },
+          orderBy: { target: { title: 'asc' } },
+        },
+        backlinks: {
+          include: { source: { select: { id: true, title: true } } },
+          orderBy: { source: { title: 'asc' } },
+        },
       },
-      links: {
-        include: { target: { select: { id: true, title: true } } },
-        orderBy: { target: { title: 'asc' } },
-      },
-      backlinks: {
-        include: { source: { select: { id: true, title: true } } },
-        orderBy: { source: { title: 'asc' } },
-      },
-    },
-  });
-  if (!note) return null;
+    });
+    if (!note) return null;
 
-  return {
-    ...toNote(note),
-    tags: note.tags.map(noteTag => noteTag.tag.name),
-    links: note.links.map(link => link.target),
-    backlinks: note.backlinks.map(link => link.source),
-  };
+    return {
+      ...toNote(note),
+      tags: note.tags.map(noteTag => noteTag.tag.name),
+      links: note.links.map(link => link.target),
+      backlinks: note.backlinks.map(link => link.source),
+    };
+  } catch (err) {
+    return handleDatabaseError('getNote', err, [], null);
+  }
 }
 
 export async function updateNote(id: string, title?: string, body?: string): Promise<Note | null> {
@@ -97,10 +131,7 @@ export async function updateNote(id: string, title?: string, body?: string): Pro
     });
     return toNote(note);
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
-      return null;
-    }
-    throw err;
+    return handleDatabaseError('updateNote', err, ['P2025'], null);
   }
 }
 
@@ -109,47 +140,52 @@ export async function deleteNote(id: string): Promise<boolean> {
     await prisma.note.delete({ where: { id } });
     return true;
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
-      return false;
-    }
-    throw err;
+    return handleDatabaseError('deleteNote', err, ['P2025'], false);
   }
 }
 
 export async function searchNotes(queryStr: string): Promise<SearchResult[]> {
-  const rows = await prisma.$queryRaw<{
-    id: string;
-    title: string;
-    body: string;
-    rank: number;
-    updated_at: Date;
-  }[]>`
-    SELECT id, title, body,
-           ts_rank(search, plainto_tsquery('english', ${queryStr})) as rank,
-           updated_at
-    FROM notes
-    WHERE search @@ plainto_tsquery('english', ${queryStr})
-    ORDER BY rank DESC
-    LIMIT 50
-  `;
+  try {
+    const rows = await prisma.$queryRaw<{
+      id: string;
+      title: string;
+      body: string;
+      rank: number;
+      updated_at: Date;
+    }[]>`
+      SELECT id, title, body,
+             ts_rank(search, plainto_tsquery('english', ${queryStr})) as rank,
+             updated_at
+      FROM notes
+      WHERE search @@ plainto_tsquery('english', ${queryStr})
+      ORDER BY rank DESC
+      LIMIT 50
+    `;
 
-  return rows.map(row => ({
-    id: row.id,
-    title: row.title,
-    body: row.body,
-    rank: row.rank,
-    updated_at: row.updated_at.toISOString(),
-  }));
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      rank: row.rank,
+      updated_at: row.updated_at.toISOString(),
+    }));
+  } catch (err) {
+    return handleDatabaseError('searchNotes', err, [], []);
+  }
 }
 
 export async function listNotes(tag?: string, limit = 50, offset = 0): Promise<Note[]> {
-  const notes = await prisma.note.findMany({
-    where: tag ? { tags: { some: { tag: { name: tag } } } } : undefined,
-    orderBy: { updatedAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
-  return notes.map(toNote);
+  try {
+    const notes = await prisma.note.findMany({
+      where: tag ? { tags: { some: { tag: { name: tag } } } } : undefined,
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    return notes.map(toNote);
+  } catch (err) {
+    return handleDatabaseError('listNotes', err, [], []);
+  }
 }
 
 export async function linkNotes(sourceId: string, targetId: string): Promise<boolean> {
@@ -162,20 +198,21 @@ export async function linkNotes(sourceId: string, targetId: string): Promise<boo
     });
     return true;
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2003', 'P2004'].includes(err.code)) {
-      return false;
-    }
-    throw err;
+    return handleDatabaseError('linkNotes', err, ['P2002', 'P2003', 'P2004'], false);
   }
 }
 
 export async function getBacklinks(noteId: string): Promise<{ id: string; title: string }[]> {
-  const links = await prisma.link.findMany({
-    where: { targetNoteId: noteId },
-    include: { source: { select: { id: true, title: true } } },
-    orderBy: { source: { title: 'asc' } },
-  });
-  return links.map(link => link.source);
+  try {
+    const links = await prisma.link.findMany({
+      where: { targetNoteId: noteId },
+      include: { source: { select: { id: true, title: true } } },
+      orderBy: { source: { title: 'asc' } },
+    });
+    return links.map(link => link.source);
+  } catch (err) {
+    return handleDatabaseError('getBacklinks', err, [], []);
+  }
 }
 
 export async function addTag(noteId: string, tagName: string): Promise<boolean> {
@@ -193,21 +230,18 @@ export async function addTag(noteId: string, tagName: string): Promise<boolean> 
     });
     return true;
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2003'].includes(err.code)) {
-      return false;
-    }
-    throw err;
+    return handleDatabaseError('addTag', err, ['P2002', 'P2003'], false);
   }
 }
 
 export async function removeTag(noteId: string, tagName: string): Promise<boolean> {
-  const tag = await prisma.tag.findUnique({
-    where: { name: tagName },
-    select: { id: true },
-  });
-  if (!tag) return false;
-
   try {
+    const tag = await prisma.tag.findUnique({
+      where: { name: tagName },
+      select: { id: true },
+    });
+    if (!tag) return false;
+
     await prisma.noteTag.delete({
       where: {
         noteId_tagId: {
@@ -218,17 +252,18 @@ export async function removeTag(noteId: string, tagName: string): Promise<boolea
     });
     return true;
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
-      return false;
-    }
-    throw err;
+    return handleDatabaseError('removeTag', err, ['P2025'], false);
   }
 }
 
 export async function getAllTags(): Promise<string[]> {
-  const tags = await prisma.tag.findMany({
-    orderBy: { name: 'asc' },
-    select: { name: true },
-  });
-  return tags.map(tag => tag.name);
+  try {
+    const tags = await prisma.tag.findMany({
+      orderBy: { name: 'asc' },
+      select: { name: true },
+    });
+    return tags.map(tag => tag.name);
+  } catch (err) {
+    return handleDatabaseError('getAllTags', err, [], []);
+  }
 }
