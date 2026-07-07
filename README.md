@@ -1,6 +1,6 @@
 # zk-mcp
 
-A Zettelkasten note-taking system as an MCP (Model Context Protocol) server. Create, link, tag, search, and retrieve notes through any MCP client — opencode, Claude Desktop, Claude Code CLI, or any MCP-compatible host.
+A Zettelkasten note-taking system as an MCP (Model Context Protocol) server. Create, link, tag, search, and retrieve notes through any MCP client, including ChatGPT connectors and other MCP-compatible hosts.
 
 ## Quick Start
 
@@ -14,7 +14,7 @@ npm run dev             # start on http://localhost:3100/mcp
 ## Architecture
 
 ```
-MCP Client (opencode/Claude)  ←→  Streamable HTTP / stdio  ←→  zk-mcp  ←→  PostgreSQL
+MCP Client (ChatGPT/opencode/etc.)  ←→  Streamable HTTP / stdio  ←→  zk-mcp  ←→  PostgreSQL
 ```
 
 The server supports two transports:
@@ -59,9 +59,6 @@ Resources support `list` — MCP clients can discover all notes without knowing 
 | `DATABASE_URL` | — | PostgreSQL connection string (required) |
 | `PORT` | `3100` | HTTP server port |
 | `HOST` | `0.0.0.0` | HTTP server bind address |
-| `AUTH_TOKEN` | — | If set, requires this Bearer token on all /mcp requests |
-| `OAUTH_ALLOWED_REDIRECT_ORIGINS` | `https://claude.ai` | Comma-separated HTTPS origins allowed for OAuth redirects |
-
 ## Database Schema
 
 - **`notes`** — `id` (UUID PK), `title`, `body`, `created_at`, `updated_at`, `search` (auto-generated `tsvector` for full-text search)
@@ -95,37 +92,11 @@ Add to `opencode.json`:
 }
 ```
 
-### Claude Code CLI
+### ChatGPT Connector
 
-```bash
-claude mcp add --transport http zk https://your-app.onrender.com/mcp
-```
+1. Enable developer mode in ChatGPT if your workspace requires it.
+2. Create a connector and point it at `https://your-app.onrender.com/mcp`.
+3. If the deployment is public, no extra auth configuration is needed.
+4. ChatGPT will scan the available tools and make them available in chat.
 
-### Claude Desktop (via mcp-remote bridge)
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "zk-mcp": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://your-app.onrender.com/mcp", "--transport", "http-only"]
-    }
-  }
-}
-```
-
-### claude.ai Web Connector
-
-The claude.ai custom connector flow tries OAuth discovery against every remote MCP server. This server includes a **fake OAuth endpoint** that auto-approves any registration, redirect, and token exchange so the connector setup succeeds.
-
-1. Go to **Settings → Connectors → Add custom connector**
-2. Enter URL: `https://your-app.onrender.com/mcp`
-3. Leave OAuth fields blank
-4. Click Connect — your browser opens and immediately closes (auto-redirect), then the connector shows "Connected"
-5. Enable the connector in a chat from the `+` menu
-
-For protected deployments, set `AUTH_TOKEN`. The OAuth token endpoint returns that same bearer token so Claude web can authorize calls to `/mcp`. OAuth redirects are restricted to `https://claude.ai` by default; add other HTTPS origins with `OAUTH_ALLOWED_REDIRECT_ORIGINS` only when connecting other trusted MCP clients.
-
-This works around [known claude.ai issue #402](https://github.com/anthropics/claude-ai-mcp/issues/402) — the broker doesn't support authless servers natively. The OAuth compatibility endpoints run on `/.well-known/oauth-*`, `/register`, `/authorize`, and `/token` alongside the MCP endpoint.
+The server exposes a standard remote MCP endpoint and does not ship a custom OAuth compatibility layer.
