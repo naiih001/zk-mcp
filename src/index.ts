@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer } from './server.js';
 import {
   createJsonResponse,
+  describeMcpMessage,
   getRequestOrigin,
   parseJsonBody,
 } from './http.js';
@@ -39,10 +40,25 @@ const httpServer = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', origin);
   const method = req.method ?? 'GET';
   const path = url.pathname;
+  let requestSummary = '';
+  let responseSession: string | number | readonly string[] | undefined;
+
+  const writeHead = res.writeHead.bind(res);
+  res.writeHead = function (this: http.ServerResponse, ...args: unknown[]) {
+    const headersArg = typeof args[1] === 'object' ? args[1] : args[2];
+    if (headersArg && !Array.isArray(headersArg)) {
+      const headers = headersArg as http.OutgoingHttpHeaders;
+      responseSession = headers['mcp-session-id'] || headers['Mcp-Session-Id'];
+    }
+    return writeHead(...args as Parameters<typeof res.writeHead>);
+  } as typeof res.writeHead;
 
   const end = res.end.bind(res);
   res.end = function (this: http.ServerResponse, ...args: unknown[]) {
-    log(`${method} ${path} → ${this.statusCode} (${Date.now() - start}ms)`);
+    const session = responseSession || this.getHeader('mcp-session-id');
+    const sessionInfo = session ? ` session=${session}` : '';
+    const requestInfo = requestSummary ? ` ${requestSummary}` : '';
+    log(`${method} ${path} -> ${this.statusCode}${sessionInfo}${requestInfo} (${Date.now() - start}ms)`);
     return end.apply(this, args as Parameters<typeof end>);
   } as typeof res.end;
 
@@ -59,14 +75,18 @@ const httpServer = http.createServer(async (req, res) => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
       const body = Buffer.concat(chunks).toString();
-      log('mcp request');
-      await transport.handleRequest(req, res, body ? parseJsonBody(body) : undefined);
+      const parsedBody = body ? parseJsonBody(body) : undefined;
+      requestSummary = describeMcpMessage(parsedBody);
+      const session = req.headers['mcp-session-id'] || '(none)';
+      log(`mcp request ${requestSummary} session=${session} bytes=${Buffer.byteLength(body)}`);
+      await transport.handleRequest(req, res, parsedBody);
       return;
     }
 
     res.writeHead(404).end('Not found');
   } catch (err) {
-    console.error(`[${new Date().toISOString().slice(11, 23)}] Request error:`, err);
+    const requestInfo = requestSummary ? ` ${requestSummary}` : '';
+    console.error(`[${new Date().toISOString().slice(11, 23)}] Request error${requestInfo}:`, err);
     if (!res.headersSent) {
       res.writeHead(500).end('Internal server error');
     }

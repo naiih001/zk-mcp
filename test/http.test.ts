@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createJsonResponse,
+  describeMcpMessage,
   getRequestOrigin,
   parseJsonBody,
 } from '../src/http.js';
@@ -35,4 +36,48 @@ test('createJsonResponse returns a JSON payload wrapper', () => {
     headers: { 'Content-Type': 'application/json' },
     body: '{"status":"ok"}',
   });
+});
+
+test('describeMcpMessage summarizes JSON-RPC requests without arguments', () => {
+  assert.equal(
+    describeMcpMessage({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'create_note',
+        arguments: {
+          title: 'Private title',
+          body: 'Private body',
+        },
+      },
+    }),
+    'method=tools/call id=4 tool=create_note',
+  );
+});
+
+test('describeMcpMessage summarizes initialize and batch requests', () => {
+  assert.equal(
+    describeMcpMessage({
+      jsonrpc: '2.0',
+      id: 'init-1',
+      method: 'initialize',
+      params: {},
+    }),
+    'method=initialize id=init-1',
+  );
+
+  assert.equal(
+    describeMcpMessage([
+      { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+      { jsonrpc: '2.0', id: 2, method: 'resources/list', params: {} },
+    ]),
+    'batch=2 methods=tools/list,resources/list ids=1,2',
+  );
+});
+
+test('describeMcpMessage reports empty and invalid bodies', () => {
+  assert.equal(describeMcpMessage(undefined), 'body=(empty)');
+  assert.equal(describeMcpMessage(null), 'body=(invalid-json)');
+  assert.equal(describeMcpMessage('not-an-object'), 'body=(invalid-json)');
 });
