@@ -14,9 +14,10 @@ model Note {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tags      NoteTag[] @relation("NoteToNoteTags")
-  links     Link[]    @relation("SourceNoteLinks")
-  backlinks Link[]    @relation("TargetNoteLinks")
+  tags      NoteTag[]  @relation("NoteToNoteTags")
+  links     Link[]     @relation("SourceNoteLinks")
+  backlinks Link[]     @relation("TargetNoteLinks")
+  todoLinks TodoNote[] @relation("NoteTodoLinks")
 
   @@index([updatedAt(sort: Desc)], map: "idx_notes_updated_at")
   @@map("notes")
@@ -40,6 +41,37 @@ model NoteTag {
   @@id([noteId, tagId])
   @@index([tagId], map: "idx_note_tags_tag")
   @@map("note_tags")
+}
+
+model Todo {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String    @db.Text
+  description String    @default("") @db.Text
+  status      String    @default("pending") @db.Text
+  priority    Int       @default(0)
+  dueDate     DateTime? @map("due_date") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  notes TodoNote[] @relation("TodoToNotes")
+
+  @@index([status], map: "idx_todos_status")
+  @@index([updatedAt(sort: Desc)], map: "idx_todos_updated_at")
+  @@map("todos")
+}
+
+model TodoNote {
+  todoId    String   @map("todo_id") @db.Uuid
+  noteId    String   @map("note_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  todo Todo @relation("TodoToNotes", fields: [todoId], references: [id], onDelete: Cascade)
+  note Note @relation("NoteTodoLinks", fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@id([todoId, noteId])
+  @@index([noteId], map: "idx_todo_notes_note")
+  @@map("todo_notes")
 }
 
 model Link {

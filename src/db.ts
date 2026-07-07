@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from './generated/prisma/client.js';
 import { logError, serializeError } from './observability.js';
-import type { Note, NoteWithRelations, SearchResult } from './schema.js';
+import type { Note, NoteWithRelations, SearchResult, Todo, TodoWithRelations, TodoSearchResult } from './schema.js';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -108,6 +108,10 @@ export async function getNote(id: string): Promise<NoteWithRelations | null> {
           include: { source: { select: { id: true, title: true } } },
           orderBy: { source: { title: 'asc' } },
         },
+        todoLinks: {
+          include: { todo: { select: { id: true, title: true } } },
+          orderBy: { todo: { title: 'asc' } },
+        },
       },
     });
     if (!note) return null;
@@ -117,6 +121,7 @@ export async function getNote(id: string): Promise<NoteWithRelations | null> {
       tags: note.tags.map(noteTag => noteTag.tag.name),
       links: note.links.map(link => link.target),
       backlinks: note.backlinks.map(link => link.source),
+      todos: note.todoLinks.map(tl => tl.todo),
     };
   } catch (err) {
     return handleDatabaseError('getNote', err, [], null);
@@ -275,6 +280,218 @@ export async function removeTag(noteId: string, tagName: string): Promise<boolea
     return true;
   } catch (err) {
     return handleDatabaseError('removeTag', err, ['P2025'], false);
+  }
+}
+
+type PrismaTodo = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: number;
+  dueDate: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toTodo(todo: PrismaTodo): Todo {
+  return {
+    id: todo.id,
+    title: todo.title,
+    description: todo.description,
+    status: todo.status,
+    priority: todo.priority,
+    due_date: todo.dueDate?.toISOString() ?? null,
+    completed_at: todo.completedAt?.toISOString() ?? null,
+    created_at: todo.createdAt.toISOString(),
+    updated_at: todo.updatedAt.toISOString(),
+  };
+}
+
+export async function createTodo(
+  title: string,
+  description?: string,
+  status?: string,
+  priority?: number,
+  dueDate?: string,
+): Promise<Todo> {
+  try {
+    const todo = await prisma.todo.create({
+      data: {
+        title,
+        description: description ?? '',
+        status: status ?? 'pending',
+        priority: priority ?? 0,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+      },
+    });
+    return toTodo(todo);
+  } catch (err) {
+    return handleDatabaseError('createTodo', err, [], undefined as never);
+  }
+}
+
+export async function getTodo(id: string): Promise<TodoWithRelations | null> {
+  try {
+    const todo = await prisma.todo.findUnique({
+      where: { id },
+      include: {
+        notes: {
+          include: { note: { select: { id: true, title: true } } },
+          orderBy: { note: { title: 'asc' } },
+        },
+      },
+    });
+    if (!todo) return null;
+
+    return {
+      ...toTodo(todo),
+      notes: todo.notes.map(tn => tn.note),
+    };
+  } catch (err) {
+    return handleDatabaseError('getTodo', err, [], null);
+  }
+}
+
+export async function updateTodo(
+  id: string,
+  fields: {
+    title?: string;
+    description?: string;
+    status?: string;
+    priority?: number;
+    dueDate?: string | null;
+  },
+): Promise<Todo | null> {
+  const data: Record<string, unknown> = {};
+  if (fields.title !== undefined) data.title = fields.title;
+  if (fields.description !== undefined) data.description = fields.description;
+  if (fields.status !== undefined) data.status = fields.status;
+  if (fields.priority !== undefined) data.priority = fields.priority;
+  if (fields.dueDate !== undefined) {
+    data.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
+  }
+  if (fields.status === 'completed') {
+    data.completedAt = new Date();
+  } else if (fields.status !== undefined && fields.status !== 'completed') {
+    data.completedAt = null;
+  }
+  if (Object.keys(data).length === 0) return null;
+
+  try {
+    const todo = await prisma.todo.update({
+      where: { id },
+      data,
+    });
+    return toTodo(todo);
+  } catch (err) {
+    return handleDatabaseError('updateTodo', err, ['P2025'], null);
+  }
+}
+
+export async function deleteTodo(id: string): Promise<boolean> {
+  try {
+    await prisma.todo.delete({ where: { id } });
+    return true;
+  } catch (err) {
+    return handleDatabaseError('deleteTodo', err, ['P2025'], false);
+  }
+}
+
+export async function listTodos(status?: string, limit = 50, offset = 0): Promise<Todo[]> {
+  try {
+    const todos = await prisma.todo.findMany({
+      where: status ? { status } : undefined,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take: limit,
+      skip: offset,
+    });
+    return todos.map(toTodo);
+  } catch (err) {
+    return handleDatabaseError('listTodos', err, [], []);
+  }
+}
+
+export async function searchTodos(queryStr: string, limit = 50, offset = 0): Promise<TodoSearchResult[]> {
+  try {
+    const rows = await prisma.$queryRaw<{
+      id: string;
+      title: string;
+      description: string;
+      snippet: string;
+      rank: number;
+      status: string;
+      priority: number;
+      updated_at: Date;
+    }[]>`
+      SELECT t.id,
+             t.title,
+             t.description,
+             ts_headline(
+               'english',
+               t.description,
+               plainto_tsquery('english', ${queryStr}),
+               'MaxWords=35, MinWords=12, ShortWord=3, HighlightAll=false'
+             ) as snippet,
+             ts_rank(t.search, plainto_tsquery('english', ${queryStr})) as rank,
+             t.status,
+             t.priority,
+             t.updated_at
+      FROM todos t
+      WHERE t.search @@ plainto_tsquery('english', ${queryStr})
+      ORDER BY rank DESC, t.updated_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+
+    return rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      snippet: row.snippet,
+      rank: row.rank,
+      status: row.status,
+      priority: row.priority,
+      updated_at: row.updated_at.toISOString(),
+    }));
+  } catch (err) {
+    return handleDatabaseError('searchTodos', err, [], []);
+  }
+}
+
+export async function linkTodoToNote(todoId: string, noteId: string): Promise<boolean> {
+  try {
+    await prisma.todoNote.create({
+      data: { todoId, noteId },
+    });
+    return true;
+  } catch (err) {
+    return handleDatabaseError('linkTodoToNote', err, ['P2002', 'P2003', 'P2004'], false);
+  }
+}
+
+export async function unlinkTodoFromNote(todoId: string, noteId: string): Promise<boolean> {
+  try {
+    await prisma.todoNote.delete({
+      where: { todoId_noteId: { todoId, noteId } },
+    });
+    return true;
+  } catch (err) {
+    return handleDatabaseError('unlinkTodoFromNote', err, ['P2025'], false);
+  }
+}
+
+export async function getTodoNotes(todoId: string): Promise<{ id: string; title: string }[]> {
+  try {
+    const links = await prisma.todoNote.findMany({
+      where: { todoId },
+      include: { note: { select: { id: true, title: true } } },
+      orderBy: { note: { title: 'asc' } },
+    });
+    return links.map(link => link.note);
+  } catch (err) {
+    return handleDatabaseError('getTodoNotes', err, [], []);
   }
 }
 

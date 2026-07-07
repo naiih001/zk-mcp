@@ -26,6 +26,40 @@ export interface NoteWithRelations extends Note {
   tags: string[];
   links: { id: string; title: string }[];
   backlinks: { id: string; title: string }[];
+  todos: { id: string; title: string }[];
+}
+
+export interface Todo {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: number;
+  due_date: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TodoNote {
+  todo_id: string;
+  note_id: string;
+  created_at: string;
+}
+
+export interface TodoWithRelations extends Todo {
+  notes: { id: string; title: string }[];
+}
+
+export interface TodoSearchResult {
+  id: string;
+  title: string;
+  description: string;
+  snippet: string;
+  rank: number;
+  status: string;
+  priority: number;
+  updated_at: string;
 }
 
 export interface SearchResult {
