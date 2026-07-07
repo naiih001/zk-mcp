@@ -28,14 +28,32 @@ test('handleDatabaseError returns fallback for expected Prisma errors', () => {
 
 test('handleDatabaseError wraps unexpected errors with operation context', () => {
   const cause = new Error('connection closed');
+  const originalError = console.error;
+  const lines: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    lines.push(args);
+  };
 
-  assert.throws(
-    () => db.handleDatabaseError('searchNotes', cause, ['P2025'], []),
-    (err) => {
-      assert.equal(err instanceof db.DatabaseOperationError, true);
-      assert.equal((err as Error).message, 'Database operation failed: searchNotes');
-      assert.equal((err as Error & { cause?: unknown }).cause, cause);
-      return true;
-    },
-  );
+  try {
+    assert.throws(
+      () => db.handleDatabaseError('searchNotes', cause, ['P2025'], []),
+      (err) => {
+        assert.equal(err instanceof db.DatabaseOperationError, true);
+        assert.equal((err as Error).message, 'Database operation failed: searchNotes');
+        assert.equal((err as Error & { cause?: unknown }).cause, cause);
+        return true;
+      },
+    );
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]?.length, 1);
+  const log = JSON.parse(String(lines[0]?.[0]));
+  assert.equal(log.level, 'error');
+  assert.equal(log.event, 'db_error');
+  assert.equal(log.operation, 'searchNotes');
+  assert.equal(log.errorName, 'Error');
+  assert.equal(log.errorMessage, 'connection closed');
 });
