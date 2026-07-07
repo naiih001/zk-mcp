@@ -88,7 +88,7 @@ test('formatSearchResults reports no matches clearly', () => {
   assert.equal(formatSearchResults([]), 'No results found');
 });
 
-test('formatNoteList renders short IDs and ISO dates', () => {
+test('formatNoteList renders full IDs and ISO dates', () => {
   const notes: Note[] = [
     {
       id: '11111111-1111-4111-8111-111111111111',
@@ -99,7 +99,7 @@ test('formatNoteList renders short IDs and ISO dates', () => {
     },
   ];
 
-  assert.equal(formatNoteList(notes), '11111111... | Atomic notes | 2026-07-02');
+  assert.equal(formatNoteList(notes), '11111111-1111-4111-8111-111111111111 | Atomic notes | 2026-07-02');
 });
 
 test('formatNoteList reports empty lists clearly', () => {
