@@ -1,5 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from './generated/prisma/client.js';
+import { logError, serializeError } from './observability.js';
 import type { Note, NoteWithRelations, SearchResult } from './schema.js';
 
 const connectionString = process.env.DATABASE_URL;
@@ -35,6 +36,10 @@ export function handleDatabaseError<T>(
     return fallback;
   }
 
+  logError('db_error', {
+    operation,
+    ...serializeError(err),
+  });
   throw new DatabaseOperationError(operation, err);
 }
 
