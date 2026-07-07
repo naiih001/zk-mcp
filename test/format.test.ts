@@ -51,13 +51,37 @@ test('formatSearchResults renders scores to two decimal places', () => {
     {
       id: '11111111-1111-4111-8111-111111111111',
       title: 'First result',
-      body: '',
+      snippet: 'A short matching excerpt from the note body.',
+      tags: ['zettelkasten', 'writing'],
       rank: 0.9876,
       updated_at: '2026-07-02T10:00:00.000Z',
     },
   ];
 
-  assert.equal(formatSearchResults(results), '1. First result (score: 0.99)');
+  assert.equal(formatSearchResults(results), [
+    '1. 11111111... | First result | score: 0.99 | updated: 2026-07-02',
+    '   Tags: zettelkasten, writing',
+    '   Snippet: A short matching excerpt from the note body.',
+  ].join('\n'));
+});
+
+test('formatSearchResults reports missing tags and snippets clearly', () => {
+  const results: SearchResult[] = [
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      title: 'First result',
+      snippet: '',
+      tags: [],
+      rank: 0.9876,
+      updated_at: '2026-07-02T10:00:00.000Z',
+    },
+  ];
+
+  assert.equal(formatSearchResults(results), [
+    '1. 11111111... | First result | score: 0.99 | updated: 2026-07-02',
+    '   Tags: (none)',
+    '   Snippet: (none)',
+  ].join('\n'));
 });
 
 test('formatSearchResults reports no matches clearly', () => {

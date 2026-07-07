@@ -86,9 +86,11 @@ export function createServer(): McpServer {
     description: 'Full-text search across all notes',
     inputSchema: {
       query: z.string().min(1).describe('Search query'),
+      limit: z.number().min(1).max(100).default(50).describe('Max results'),
+      offset: z.number().min(0).default(0).describe('Pagination offset'),
     },
-  }, async ({ query }) => {
-    const results = await db.searchNotes(query);
+  }, async ({ query, limit, offset }) => {
+    const results = await db.searchNotes(query, limit, offset);
     return { content: [{ type: 'text', text: formatSearchResults(results) }] };
   });
 

@@ -31,7 +31,8 @@ export interface NoteWithRelations extends Note {
 export interface SearchResult {
   id: string;
   title: string;
-  body: string;
+  snippet: string;
+  tags: string[];
   rank: number;
   updated_at: string;
 }

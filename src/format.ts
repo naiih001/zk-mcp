@@ -38,7 +38,14 @@ export function formatSearchResults(results: SearchResult[]): string {
   if (results.length === 0) {
     return 'No results found';
   }
-  return results.map((r, i) => `${i + 1}. ${r.title} (score: ${r.rank.toFixed(2)})`).join('\n');
+  return results.map((r, i) => {
+    const updatedAt = new Date(r.updated_at).toISOString().slice(0, 10);
+    return [
+      `${i + 1}. ${r.id.slice(0, 8)}... | ${r.title} | score: ${r.rank.toFixed(2)} | updated: ${updatedAt}`,
+      `   Tags: ${r.tags.join(', ') || '(none)'}`,
+      `   Snippet: ${r.snippet || '(none)'}`,
+    ].join('\n');
+  }).join('\n');
 }
 
 export function formatNoteList(notes: Note[]): string {

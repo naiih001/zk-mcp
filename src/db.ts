@@ -144,28 +144,45 @@ export async function deleteNote(id: string): Promise<boolean> {
   }
 }
 
-export async function searchNotes(queryStr: string): Promise<SearchResult[]> {
+export async function searchNotes(queryStr: string, limit = 50, offset = 0): Promise<SearchResult[]> {
   try {
     const rows = await prisma.$queryRaw<{
       id: string;
       title: string;
-      body: string;
+      snippet: string;
+      tags: string[];
       rank: number;
       updated_at: Date;
     }[]>`
-      SELECT id, title, body,
-             ts_rank(search, plainto_tsquery('english', ${queryStr})) as rank,
-             updated_at
-      FROM notes
-      WHERE search @@ plainto_tsquery('english', ${queryStr})
-      ORDER BY rank DESC
-      LIMIT 50
+      SELECT n.id,
+             n.title,
+             ts_headline(
+               'english',
+               n.body,
+               plainto_tsquery('english', ${queryStr}),
+               'MaxWords=35, MinWords=12, ShortWord=3, HighlightAll=false'
+             ) as snippet,
+             COALESCE(
+               array_agg(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL),
+               ARRAY[]::text[]
+             ) as tags,
+             ts_rank(n.search, plainto_tsquery('english', ${queryStr})) as rank,
+             n.updated_at
+      FROM notes n
+      LEFT JOIN note_tags nt ON nt.note_id = n.id
+      LEFT JOIN tags t ON t.id = nt.tag_id
+      WHERE n.search @@ plainto_tsquery('english', ${queryStr})
+      GROUP BY n.id, n.title, n.body, n.search, n.updated_at
+      ORDER BY rank DESC, n.updated_at DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
     `;
 
     return rows.map(row => ({
       id: row.id,
       title: row.title,
-      body: row.body,
+      snippet: row.snippet,
+      tags: row.tags,
       rank: row.rank,
       updated_at: row.updated_at.toISOString(),
     }));

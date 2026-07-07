@@ -29,7 +29,7 @@ The server supports two transports:
 | `get_note` | Get note with tags, links, backlinks | `id` (UUID) |
 | `update_note` | Update title/body | `id`, optional `title`/`body` |
 | `delete_note` | Delete a note | `id` |
-| `search_notes` | Full-text search across all notes | `query` |
+| `search_notes` | Full-text search across all notes | `query`, `limit` (default 50), `offset` |
 | `list_notes` | List notes, optionally filtered by tag | `tag`, `limit` (default 50), `offset` |
 | `link_notes` | Create a bidirectional link between two notes | `source_id`, `target_id` |
 | `get_backlinks` | Get all notes that link to a given note | `id` |
