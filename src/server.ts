@@ -7,6 +7,9 @@ import {
   formatNoteList,
   formatNoteMarkdown,
   formatSearchResults,
+  formatTodoDetail,
+  formatTodoList,
+  formatTodoSearchResults,
 } from './format.js';
 
 export function createServer(): McpServer {
@@ -241,6 +244,126 @@ export function createServer(): McpServer {
           text: `First, get the content of both notes using mcp_tool_get_note for ${source_id} and ${target_id}. Then, if they are related, use mcp_tool_link_notes to connect them.`,
         },
       }],
+    };
+  });
+
+  server.registerTool('create_todo', {
+    title: 'Create Todo',
+    description: 'Create a new todo item',
+    inputSchema: {
+      title: z.string().min(1).describe('Todo title'),
+      description: z.string().default('').describe('Optional description'),
+      status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']).default('pending').describe('Status'),
+      priority: z.number().int().min(0).max(3).default(0).describe('Priority (0=none, 1=low, 2=medium, 3=high)'),
+      due_date: z.string().optional().describe('Optional due date (ISO 8601)'),
+    },
+  }, async ({ title, description, status, priority, due_date }) => {
+    const todo = await db.createTodo(title, description, status, priority, due_date);
+    return {
+      content: [{ type: 'text', text: `Created todo ${todo.id}: "${todo.title}" (${todo.status})` }],
+    };
+  });
+
+  server.registerTool('get_todo', {
+    title: 'Get Todo',
+    description: 'Get a todo by ID with its linked notes',
+    inputSchema: {
+      id: z.string().uuid().describe('Todo UUID'),
+    },
+  }, async ({ id }) => {
+    const todo = await db.getTodo(id);
+    if (!todo) {
+      return { content: [{ type: 'text', text: 'Todo not found' }], isError: true };
+    }
+    return { content: [{ type: 'text', text: formatTodoDetail(todo) }] };
+  });
+
+  server.registerTool('update_todo', {
+    title: 'Update Todo',
+    description: 'Update a todo item',
+    inputSchema: {
+      id: z.string().uuid().describe('Todo UUID'),
+      title: z.string().min(1).optional().describe('New title'),
+      description: z.string().optional().describe('New description'),
+      status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']).optional().describe('New status'),
+      priority: z.number().int().min(0).max(3).optional().describe('New priority (0=none, 1=low, 2=medium, 3=high)'),
+      due_date: z.string().nullable().optional().describe('New due date (ISO 8601) or null to clear'),
+    },
+  }, async ({ id, title, description, status, priority, due_date }) => {
+    const todo = await db.updateTodo(id, { title, description, status, priority, dueDate: due_date });
+    if (!todo) {
+      return { content: [{ type: 'text', text: 'Todo not found or nothing to update' }], isError: true };
+    }
+    return { content: [{ type: 'text', text: `Updated todo ${todo.id}` }] };
+  });
+
+  server.registerTool('delete_todo', {
+    title: 'Delete Todo',
+    description: 'Delete a todo by ID',
+    inputSchema: {
+      id: z.string().uuid().describe('Todo UUID'),
+    },
+  }, async ({ id }) => {
+    const ok = await db.deleteTodo(id);
+    return {
+      content: [{ type: 'text', text: ok ? `Deleted todo ${id}` : 'Todo not found' }],
+      isError: !ok,
+    };
+  });
+
+  server.registerTool('list_todos', {
+    title: 'List Todos',
+    description: 'List todos, optionally filtered by status',
+    inputSchema: {
+      status: z.enum(['pending', 'in_progress', 'completed', 'cancelled']).optional().describe('Filter by status'),
+      limit: z.number().min(1).max(100).default(50).describe('Max results'),
+      offset: z.number().min(0).default(0).describe('Pagination offset'),
+    },
+  }, async ({ status, limit, offset }) => {
+    const todos = await db.listTodos(status, limit, offset);
+    return { content: [{ type: 'text', text: formatTodoList(todos) }] };
+  });
+
+  server.registerTool('search_todos', {
+    title: 'Search Todos',
+    description: 'Full-text search across all todos',
+    inputSchema: {
+      query: z.string().min(1).describe('Search query'),
+      limit: z.number().min(1).max(100).default(50).describe('Max results'),
+      offset: z.number().min(0).default(0).describe('Pagination offset'),
+    },
+  }, async ({ query, limit, offset }) => {
+    const results = await db.searchTodos(query, limit, offset);
+    return { content: [{ type: 'text', text: formatTodoSearchResults(results) }] };
+  });
+
+  server.registerTool('link_todo_to_note', {
+    title: 'Link Todo to Note',
+    description: 'Link a todo to a note',
+    inputSchema: {
+      todo_id: z.string().uuid().describe('Todo UUID'),
+      note_id: z.string().uuid().describe('Note UUID'),
+    },
+  }, async ({ todo_id, note_id }) => {
+    const ok = await db.linkTodoToNote(todo_id, note_id);
+    return {
+      content: [{ type: 'text', text: ok ? `Linked todo ${todo_id.slice(0, 8)}… → note ${note_id.slice(0, 8)}…` : 'Failed to link' }],
+      isError: !ok,
+    };
+  });
+
+  server.registerTool('unlink_todo_from_note', {
+    title: 'Unlink Todo from Note',
+    description: 'Remove the link between a todo and a note',
+    inputSchema: {
+      todo_id: z.string().uuid().describe('Todo UUID'),
+      note_id: z.string().uuid().describe('Note UUID'),
+    },
+  }, async ({ todo_id, note_id }) => {
+    const ok = await db.unlinkTodoFromNote(todo_id, note_id);
+    return {
+      content: [{ type: 'text', text: ok ? `Unlinked todo ${todo_id.slice(0, 8)}… from note ${note_id.slice(0, 8)}…` : 'Link not found' }],
+      isError: !ok,
     };
   });
 
