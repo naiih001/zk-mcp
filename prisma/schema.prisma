@@ -18,6 +18,7 @@ model Note {
   links     Link[]     @relation("SourceNoteLinks")
   backlinks Link[]     @relation("TargetNoteLinks")
   todoLinks TodoNote[] @relation("NoteTodoLinks")
+  checklistItems ChecklistItem[] @relation("NoteChecklistItems")
 
   @@index([updatedAt(sort: Desc)], map: "idx_notes_updated_at")
   @@map("notes")
@@ -85,4 +86,20 @@ model Link {
   @@id([sourceNoteId, targetNoteId])
   @@index([targetNoteId], map: "idx_links_target")
   @@map("links")
+}
+
+model ChecklistItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  noteId    String   @map("note_id") @db.Uuid
+  text      String   @db.Text
+  checked   Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  note Note @relation("NoteChecklistItems", fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, position], map: "idx_checklist_items_note_position")
+  @@index([checked], map: "idx_checklist_items_checked")
+  @@map("checklist_items")
 }

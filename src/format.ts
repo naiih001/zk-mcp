@@ -52,6 +52,11 @@ export function formatTodoSearchResults(results: TodoSearchResult[]): string {
 }
 
 export function formatNoteDetail(note: NoteWithRelations): string {
+  const checklist = note.checklistItems
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map(item => `- [${item.checked ? 'x' : ' '}] ${item.text}`);
+
   return [
     `# ${note.title}`,
     ``,
@@ -61,12 +66,18 @@ export function formatNoteDetail(note: NoteWithRelations): string {
     `Links: ${note.links.map(l => l.title).join(', ') || '(none)'}`,
     `Backlinks: ${note.backlinks.map(l => l.title).join(', ') || '(none)'}`,
     `Todos: ${note.todos.map(t => t.title).join(', ') || '(none)'}`,
+    `Checklist:${checklist.length ? `\n${checklist.join('\n')}` : ' (none)'}`,
     `Created: ${note.created_at}`,
     `Updated: ${note.updated_at}`,
   ].join('\n');
 }
 
 export function formatNoteMarkdown(note: NoteWithRelations): string {
+  const checklist = note.checklistItems
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map(item => `- [${item.checked ? 'x' : ' '}] ${item.text}`);
+
   return [
     `# ${note.title}`,
     ``,
@@ -83,6 +94,9 @@ export function formatNoteMarkdown(note: NoteWithRelations): string {
     ``,
     `## Todos`,
     ...note.todos.map(t => `- [ ] ${t.title} (zk://todos/${t.id})`),
+    ``,
+    `## Checklist`,
+    ...(checklist.length ? checklist : ['(none)']),
     ``,
     `_Created: ${note.created_at}_`,
     `_Updated: ${note.updated_at}_`,

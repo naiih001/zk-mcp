@@ -22,6 +22,26 @@ const note: NoteWithRelations = {
   links: [{ id: '22222222-2222-4222-8222-222222222222', title: 'Permanent notes' }],
   backlinks: [{ id: '33333333-3333-4333-8333-333333333333', title: 'Knowledge work' }],
   todos: [{ id: '44444444-4444-4444-8444-444444444444', title: 'Review technique' }],
+  checklistItems: [
+    {
+      id: '77777777-7777-4777-8777-777777777777',
+      note_id: '11111111-1111-4111-8111-111111111111',
+      text: 'Draft the atomic note',
+      checked: true,
+      position: 0,
+      created_at: '2026-07-01T10:05:00.000Z',
+      updated_at: '2026-07-01T10:10:00.000Z',
+    },
+    {
+      id: '88888888-8888-4888-8888-888888888888',
+      note_id: '11111111-1111-4111-8111-111111111111',
+      text: 'Link related notes',
+      checked: false,
+      position: 1,
+      created_at: '2026-07-01T10:06:00.000Z',
+      updated_at: '2026-07-01T10:06:00.000Z',
+    },
+  ],
 };
 
 test('formatNoteDetail includes note body and relationship summaries', () => {
@@ -34,13 +54,16 @@ test('formatNoteDetail includes note body and relationship summaries', () => {
     'Links: Permanent notes',
     'Backlinks: Knowledge work',
     'Todos: Review technique',
+    'Checklist:',
+    '- [x] Draft the atomic note',
+    '- [ ] Link related notes',
     'Created: 2026-07-01T10:00:00.000Z',
     'Updated: 2026-07-02T10:00:00.000Z',
   ].join('\n'));
 });
 
 test('formatNoteDetail prints explicit empty states for missing relations', () => {
-  assert.match(formatNoteDetail({ ...note, tags: [], links: [], backlinks: [], todos: [] }), /Tags: \(none\)\nLinks: \(none\)\nBacklinks: \(none\)\nTodos: \(none\)/);
+  assert.match(formatNoteDetail({ ...note, tags: [], links: [], backlinks: [], todos: [], checklistItems: [] }), /Tags: \(none\)\nLinks: \(none\)\nBacklinks: \(none\)\nTodos: \(none\)\nChecklist: \(none\)/);
 });
 
 test('formatNoteMarkdown renders resource links as zk URIs', () => {
@@ -50,6 +73,19 @@ test('formatNoteMarkdown renders resource links as zk URIs', () => {
   assert.match(markdown, /- \[\[Permanent notes\]\] \(zk:\/\/notes\/22222222-2222-4222-8222-222222222222\)/);
   assert.match(markdown, /- \[\[Knowledge work\]\] \(zk:\/\/notes\/33333333-3333-4333-8333-333333333333\)/);
   assert.match(markdown, /- \[ \] Review technique \(zk:\/\/todos\/44444444-4444-4444-8444-444444444444\)/);
+  assert.match(markdown, /## Checklist\n- \[x\] Draft the atomic note\n- \[ \] Link related notes/);
+});
+
+test('formatNoteMarkdown orders checklist items by position', () => {
+  const markdown = formatNoteMarkdown({
+    ...note,
+    checklistItems: [
+      { ...note.checklistItems[1], position: 1 },
+      { ...note.checklistItems[0], position: 0 },
+    ],
+  });
+
+  assert.match(markdown, /## Checklist\n- \[x\] Draft the atomic note\n- \[ \] Link related notes/);
 });
 
 test('formatSearchResults renders scores to two decimal places', () => {

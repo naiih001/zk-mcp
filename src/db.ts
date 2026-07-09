@@ -1,7 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from './generated/prisma/client.js';
 import { logError, serializeError } from './observability.js';
-import type { Note, NoteWithRelations, SearchResult, Todo, TodoWithRelations, TodoSearchResult } from './schema.js';
+import type { ChecklistItem, Note, NoteWithRelations, SearchResult, Todo, TodoWithRelations, TodoSearchResult } from './schema.js';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -47,6 +47,16 @@ type PrismaNote = {
   id: string;
   title: string;
   body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaChecklistItem = {
+  id: string;
+  noteId: string;
+  text: string;
+  checked: boolean;
+  position: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -112,6 +122,9 @@ export async function getNote(id: string): Promise<NoteWithRelations | null> {
           include: { todo: { select: { id: true, title: true } } },
           orderBy: { todo: { title: 'asc' } },
         },
+        checklistItems: {
+          orderBy: { position: 'asc' },
+        },
       },
     });
     if (!note) return null;
@@ -122,9 +135,80 @@ export async function getNote(id: string): Promise<NoteWithRelations | null> {
       links: note.links.map(link => link.target),
       backlinks: note.backlinks.map(link => link.source),
       todos: note.todoLinks.map(tl => tl.todo),
+      checklistItems: note.checklistItems.map(toChecklistItem),
     };
   } catch (err) {
     return handleDatabaseError('getNote', err, [], null);
+  }
+}
+
+function toChecklistItem(item: PrismaChecklistItem): ChecklistItem {
+  return {
+    id: item.id,
+    note_id: item.noteId,
+    text: item.text,
+    checked: item.checked,
+    position: item.position,
+    created_at: item.createdAt.toISOString(),
+    updated_at: item.updatedAt.toISOString(),
+  };
+}
+
+export async function addChecklistItem(noteId: string, text: string, checked = false, position = 0): Promise<ChecklistItem | null> {
+  try {
+    const item = await prisma.checklistItem.create({
+      data: { noteId, text, checked, position },
+    });
+    return toChecklistItem(item);
+  } catch (err) {
+    return handleDatabaseError('addChecklistItem', err, ['P2003'], null);
+  }
+}
+
+export async function toggleChecklistItem(id: string, checked?: boolean): Promise<ChecklistItem | null> {
+  try {
+    const existing = await prisma.checklistItem.findUnique({ where: { id } });
+    if (!existing) return null;
+    const item = await prisma.checklistItem.update({
+      where: { id },
+      data: { checked: checked ?? !existing.checked },
+    });
+    return toChecklistItem(item);
+  } catch (err) {
+    return handleDatabaseError('toggleChecklistItem', err, ['P2025'], null);
+  }
+}
+
+export async function deleteChecklistItem(id: string): Promise<boolean> {
+  try {
+    await prisma.checklistItem.delete({ where: { id } });
+    return true;
+  } catch (err) {
+    return handleDatabaseError('deleteChecklistItem', err, ['P2025'], false);
+  }
+}
+
+export async function reorderChecklistItems(noteId: string, itemIds: string[]): Promise<ChecklistItem[] | null> {
+  try {
+    const existing = await prisma.checklistItem.findMany({
+      where: { noteId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map(item => item.id));
+    if (itemIds.length !== existingIds.size || itemIds.some(id => !existingIds.has(id))) {
+      return null;
+    }
+
+    const updated = await prisma.$transaction(
+      itemIds.map((id, position) => prisma.checklistItem.update({
+        where: { id },
+        data: { position },
+      })),
+    );
+
+    return updated.map(toChecklistItem);
+  } catch (err) {
+    return handleDatabaseError('reorderChecklistItems', err, ['P2025'], null);
   }
 }
 

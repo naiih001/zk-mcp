@@ -165,6 +165,73 @@ export function createServer(): McpServer {
     };
   });
 
+  server.registerTool('add_checklist_item', {
+    title: 'Add Checklist Item',
+    description: 'Add a structured checklist item to a note',
+    inputSchema: {
+      note_id: z.string().uuid().describe('Note UUID'),
+      text: z.string().min(1).describe('Checklist item text'),
+      checked: z.boolean().default(false).describe('Initial checked state'),
+      position: z.number().int().min(0).default(0).describe('Sort position within the note checklist'),
+    },
+  }, async ({ note_id, text, checked, position }) => {
+    const item = await db.addChecklistItem(note_id, text, checked, position);
+    if (!item) {
+      return { content: [{ type: 'text', text: 'Note not found' }], isError: true };
+    }
+    return {
+      content: [{ type: 'text', text: `Added checklist item ${item.id}: ${item.checked ? '[x]' : '[ ]'} ${item.text}` }],
+    };
+  });
+
+  server.registerTool('toggle_checklist_item', {
+    title: 'Toggle Checklist Item',
+    description: 'Toggle or explicitly set a checklist item completed state',
+    inputSchema: {
+      id: z.string().uuid().describe('Checklist item UUID'),
+      checked: z.boolean().optional().describe('Optional explicit checked state; omitted toggles current state'),
+    },
+  }, async ({ id, checked }) => {
+    const item = await db.toggleChecklistItem(id, checked);
+    if (!item) {
+      return { content: [{ type: 'text', text: 'Checklist item not found' }], isError: true };
+    }
+    return {
+      content: [{ type: 'text', text: `Updated checklist item ${item.id}: ${item.checked ? '[x]' : '[ ]'} ${item.text}` }],
+    };
+  });
+
+  server.registerTool('remove_checklist_item', {
+    title: 'Remove Checklist Item',
+    description: 'Delete a checklist item from a note',
+    inputSchema: {
+      id: z.string().uuid().describe('Checklist item UUID'),
+    },
+  }, async ({ id }) => {
+    const ok = await db.deleteChecklistItem(id);
+    return {
+      content: [{ type: 'text', text: ok ? `Removed checklist item ${id}` : 'Checklist item not found' }],
+      isError: !ok,
+    };
+  });
+
+  server.registerTool('reorder_checklist_items', {
+    title: 'Reorder Checklist Items',
+    description: 'Set the order of all checklist items on a note',
+    inputSchema: {
+      note_id: z.string().uuid().describe('Note UUID'),
+      item_ids: z.array(z.string().uuid()).min(1).describe('Checklist item UUIDs in desired order'),
+    },
+  }, async ({ note_id, item_ids }) => {
+    const items = await db.reorderChecklistItems(note_id, item_ids);
+    if (!items) {
+      return { content: [{ type: 'text', text: 'Checklist items not found or list does not match note items' }], isError: true };
+    }
+    return {
+      content: [{ type: 'text', text: `Reordered ${items.length} checklist items on note ${note_id}` }],
+    };
+  });
+
   server.registerResource(
     'Note',
     new ResourceTemplate('zk://notes/{id}', {

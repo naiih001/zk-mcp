@@ -27,6 +27,17 @@ export interface NoteWithRelations extends Note {
   links: { id: string; title: string }[];
   backlinks: { id: string; title: string }[];
   todos: { id: string; title: string }[];
+  checklistItems: ChecklistItem[];
+}
+
+export interface ChecklistItem {
+  id: string;
+  note_id: string;
+  text: string;
+  checked: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Todo {

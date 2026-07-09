@@ -13,6 +13,11 @@ const todosMigration = readFileSync(
   'utf-8',
 );
 
+const checklistsMigration = readFileSync(
+  join(process.cwd(), 'prisma', 'migrations', '20260708000000_add_checklist_items', 'migration.sql'),
+  'utf-8',
+);
+
 test('initial migration enables UUID generation', () => {
   assert.match(initialMigration, /CREATE EXTENSION IF NOT EXISTS pgcrypto;/);
   assert.match(initialMigration, /id UUID PRIMARY KEY DEFAULT gen_random_uuid\(\)/);
@@ -74,4 +79,20 @@ test('todos migration creates lookup indexes', () => {
   assert.match(todosMigration, /CREATE INDEX idx_todos_status ON todos \(status\);/);
   assert.match(todosMigration, /CREATE INDEX idx_todos_updated_at ON todos \(updated_at DESC\);/);
   assert.match(todosMigration, /CREATE INDEX idx_todo_notes_note ON todo_notes \(note_id\);/);
+});
+
+test('checklists migration creates checklist items table', () => {
+  assert.match(checklistsMigration, /CREATE TABLE checklist_items \(/);
+  assert.match(checklistsMigration, /id UUID PRIMARY KEY DEFAULT gen_random_uuid\(\)/);
+  assert.match(checklistsMigration, /note_id UUID NOT NULL REFERENCES notes\(id\) ON DELETE CASCADE/);
+  assert.match(checklistsMigration, /text TEXT NOT NULL/);
+  assert.match(checklistsMigration, /checked BOOLEAN NOT NULL DEFAULT false/);
+  assert.match(checklistsMigration, /position INTEGER NOT NULL DEFAULT 0/);
+  assert.match(checklistsMigration, /created_at TIMESTAMPTZ NOT NULL DEFAULT now\(\)/);
+  assert.match(checklistsMigration, /updated_at TIMESTAMPTZ NOT NULL DEFAULT now\(\)/);
+});
+
+test('checklists migration creates note and ordering indexes', () => {
+  assert.match(checklistsMigration, /CREATE INDEX idx_checklist_items_note_position ON checklist_items \(note_id, position\);/);
+  assert.match(checklistsMigration, /CREATE INDEX idx_checklist_items_checked ON checklist_items \(checked\);/);
 });
