@@ -1,4 +1,5 @@
 import type { IncomingHttpHeaders } from 'node:http';
+import { extname } from 'node:path';
 
 export function getRequestOrigin(reqUrl: string | undefined, headers: IncomingHttpHeaders): string {
   const proto = (headers['x-forwarded-proto'] as string) || 'http';
@@ -21,6 +22,31 @@ export function createJsonResponse(status: number, data: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   };
+}
+
+export function createTextResponse(status: number, body: string, contentType = 'text/plain; charset=utf-8') {
+  return {
+    status,
+    headers: { 'Content-Type': contentType },
+    body,
+  };
+}
+
+export function getContentType(filePath: string): string {
+  switch (extname(filePath)) {
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.svg':
+      return 'image/svg+xml';
+    default:
+      return 'application/octet-stream';
+  }
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {

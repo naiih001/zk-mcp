@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createJsonResponse,
+  createTextResponse,
   describeMcpMessage,
+  getContentType,
   getRequestOrigin,
   parseJsonBody,
 } from '../src/http.js';
@@ -36,6 +38,20 @@ test('createJsonResponse returns a JSON payload wrapper', () => {
     headers: { 'Content-Type': 'application/json' },
     body: '{"status":"ok"}',
   });
+});
+
+test('createTextResponse returns a text payload wrapper', () => {
+  assert.deepEqual(createTextResponse(200, 'hello'), {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: 'hello',
+  });
+});
+
+test('getContentType maps frontend assets', () => {
+  assert.equal(getContentType('/tmp/index.html'), 'text/html; charset=utf-8');
+  assert.equal(getContentType('/tmp/app.css'), 'text/css; charset=utf-8');
+  assert.equal(getContentType('/tmp/app.js'), 'text/javascript; charset=utf-8');
 });
 
 test('describeMcpMessage summarizes JSON-RPC requests without arguments', () => {

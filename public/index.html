@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZK Workspace</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Private notes workspace</p>
+        <h1>ZK Workspace</h1>
+        <p class="lede">Browse, edit, and delete notes and todos without leaving the browser.</p>
+      </div>
+      <div class="search">
+        <input id="searchInput" type="search" placeholder="Search notes or todos">
+        <button id="searchNotesBtn">Notes</button>
+        <button id="searchTodosBtn">Todos</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Notes</h2>
+          <button id="refreshNotesBtn">Refresh</button>
+        </div>
+        <div id="notesList" class="list"></div>
+      </section>
+
+      <section class="panel detail">
+        <div class="panel-head">
+          <h2 id="detailTitle">Select a note or todo</h2>
+          <div class="inline-actions">
+            <button id="saveBtn" disabled>Save</button>
+            <button id="deleteBtn" class="danger" disabled>Delete</button>
+          </div>
+        </div>
+        <div id="detailBody" class="detail-body">
+          <p class="empty">Pick an item from the left to edit it.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Todos</h2>
+          <button id="refreshTodosBtn">Refresh</button>
+        </div>
+        <div id="todosList" class="list"></div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
