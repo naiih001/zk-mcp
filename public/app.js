@@ -1,4 +1,4 @@
-const state = { notes: [], todos: [], selected: null };
+const state = { notes: [], todos: [], selected: null, detailTab: 'view' };
 const $ = (id) => document.getElementById(id);
 const themeKey = 'zk-theme';
 
@@ -54,6 +54,117 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function renderInlineMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function renderMarkdown(text) {
+  const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let listType = null;
+  let inCode = false;
+  let codeLines = [];
+
+  const closeList = () => {
+    if (!listType) return;
+    out.push(`</${listType}>`);
+    listType = null;
+  };
+
+  const closeCode = () => {
+    if (!inCode) return;
+    out.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+    codeLines = [];
+    inCode = false;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith('```')) {
+      if (inCode) closeCode();
+      else {
+        closeList();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(rawLine);
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      closeList();
+      out.push(`<h${heading[1].length}>${renderInlineMarkdown(heading[2])}</h${heading[1].length}>`);
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      closeList();
+      out.push(`<blockquote>${renderInlineMarkdown(line.replace(/^>\s?/, ''))}</blockquote>`);
+      continue;
+    }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    if (bullet) {
+      if (listType !== 'ul') {
+        closeList();
+        out.push('<ul>');
+        listType = 'ul';
+      }
+      out.push(`<li>${renderInlineMarkdown(bullet[1])}</li>`);
+      continue;
+    }
+    const ordered = line.match(/^\d+\.\s+(.*)$/);
+    if (ordered) {
+      if (listType !== 'ol') {
+        closeList();
+        out.push('<ol>');
+        listType = 'ol';
+      }
+      out.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+      continue;
+    }
+    closeList();
+    if (!line) {
+      out.push('<div style="height:0.35rem"></div>');
+    } else {
+      out.push(`<p>${renderInlineMarkdown(line)}</p>`);
+    }
+  }
+
+  closeList();
+  closeCode();
+  return out.join('');
+}
+
+function renderMetaList(label, values) {
+  const content = values?.length ? values.map(renderInlineMarkdown).join(', ') : 'None';
+  return `<div class="meta-item"><strong>${escapeHtml(label)}</strong> ${content}</div>`;
+}
+
+function renderChecklistPreview(items = []) {
+  if (!items.length) return '<p class="empty">No checklist items.</p>';
+  return `<div class="checklist">${items.map((item) => `
+    <div class="check-item">
+      <span>${item.checked ? '☑' : '☐'} ${renderInlineMarkdown(item.text)}</span>
+    </div>
+  `).join('')}</div>`;
+}
+
+function setDetailTab(tab) {
+  state.detailTab = tab;
+  $('viewTabBtn').classList.toggle('active', tab === 'view');
+  $('editTabBtn').classList.toggle('active', tab === 'edit');
+  renderDetail();
+}
+
 async function loadLists() {
   const [notes, todos] = await Promise.all([api('/api/notes'), api('/api/todos')]);
   state.notes = notes.notes;
@@ -64,6 +175,7 @@ async function loadLists() {
 async function openNote(id) {
   const { note } = await api(`/api/notes/${encodeURIComponent(id)}`);
   state.selected = { kind: 'note', id, item: note };
+  state.detailTab = 'view';
   renderLists();
   renderDetail();
 }
@@ -71,6 +183,7 @@ async function openNote(id) {
 async function openTodo(id) {
   const { todo } = await api(`/api/todos/${encodeURIComponent(id)}`);
   state.selected = { kind: 'todo', id, item: todo };
+  state.detailTab = 'view';
   renderLists();
   renderDetail();
 }
@@ -79,8 +192,10 @@ function renderDetail() {
   const detailTitle = $('detailTitle');
   const detailBody = $('detailBody');
   const selected = state.selected;
-  $('saveBtn').disabled = !selected;
+  $('saveBtn').disabled = !selected || state.detailTab !== 'edit';
   $('deleteBtn').disabled = !selected;
+  $('viewTabBtn').disabled = !selected;
+  $('editTabBtn').disabled = !selected;
   if (!selected) {
     detailTitle.textContent = 'Select a note or todo';
     detailBody.innerHTML = '<p class="empty">Pick an item from the left to edit it.</p>';
@@ -89,46 +204,81 @@ function renderDetail() {
   if (selected.kind === 'note') {
     const note = selected.item;
     detailTitle.textContent = note.title;
-    detailBody.innerHTML = `
-      <div class="editor" data-kind="note">
-        <input name="title" value="${escapeHtml(note.title)}">
-        <textarea name="body">${escapeHtml(note.body || '')}</textarea>
-        <div>
-          <strong>Tags</strong>
-          <div class="meta">${(note.tags || []).map(escapeHtml).join(', ') || 'None'}</div>
-        </div>
-        <div>
-          <strong>Checklist</strong>
-          <div class="checklist">${(note.checklistItems || []).map(item => `
-            <div class="check-item">
-              <label><input type="checkbox" data-item="${item.id}" ${item.checked ? 'checked' : ''}> <span>${escapeHtml(item.text)}</span></label>
-              <button data-delete-item="${item.id}" class="danger">Delete</button>
-            </div>
-          `).join('')}</div>
-          <div class="inline-actions" style="margin-top:12px">
-            <input id="newChecklistText" placeholder="New checklist item">
-            <button id="addChecklistBtn">Add item</button>
+    if (state.detailTab === 'edit') {
+      detailBody.innerHTML = `
+        <div class="editor" data-kind="note">
+          <input name="title" value="${escapeAttribute(note.title)}">
+          <textarea name="body">${escapeHtml(note.body || '')}</textarea>
+          <div>
+            <strong>Tags</strong>
+            <div class="meta">${(note.tags || []).map(escapeHtml).join(', ') || 'None'}</div>
           </div>
+          <div>
+            <strong>Checklist</strong>
+            <div class="checklist">${(note.checklistItems || []).map(item => `
+              <div class="check-item">
+                <label><input type="checkbox" data-item="${item.id}" ${item.checked ? 'checked' : ''}> <span>${escapeHtml(item.text)}</span></label>
+                <button data-delete-item="${item.id}" class="danger">Delete</button>
+              </div>
+            `).join('')}</div>
+            <div class="inline-actions" style="margin-top:12px">
+              <input id="newChecklistText" placeholder="New checklist item">
+              <button id="addChecklistBtn">Add item</button>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+    detailBody.innerHTML = `
+      <div class="view">
+        <div class="card prose">
+          ${renderMarkdown(note.body || '(no body)')}
+        </div>
+        <div class="card meta-grid">
+          ${renderMetaList('Tags', note.tags)}
+          ${renderMetaList('Links', (note.links || []).map((link) => link.title))}
+          ${renderMetaList('Backlinks', (note.backlinks || []).map((link) => link.title))}
+          ${renderMetaList('Todos', (note.todos || []).map((todo) => todo.title))}
+        </div>
+        <div class="card">
+          <strong>Checklist</strong>
+          ${renderChecklistPreview(note.checklistItems)}
         </div>
       </div>`;
     return;
   }
   const todo = selected.item;
   detailTitle.textContent = todo.title;
+  if (state.detailTab === 'edit') {
+    detailBody.innerHTML = `
+      <div class="editor" data-kind="todo">
+        <input name="title" value="${escapeAttribute(todo.title)}">
+        <textarea name="description">${escapeHtml(todo.description || '')}</textarea>
+        <div class="row">
+          <select name="status">
+            ${['pending','in_progress','completed'].map(status => `<option value="${status}" ${status === todo.status ? 'selected' : ''}>${status}</option>`).join('')}
+          </select>
+          <input name="priority" type="number" value="${todo.priority}">
+        </div>
+        <input name="dueDate" type="date" value="${todo.due_date ? todo.due_date.slice(0, 10) : ''}">
+        <div>
+          <strong>Linked notes</strong>
+          <div class="meta">${(todo.notes || []).map((n) => escapeHtml(n.title)).join(', ') || 'None'}</div>
+        </div>
+      </div>`;
+    return;
+  }
   detailBody.innerHTML = `
-    <div class="editor" data-kind="todo">
-      <input name="title" value="${escapeHtml(todo.title)}">
-      <textarea name="description">${escapeHtml(todo.description || '')}</textarea>
-      <div class="row">
-        <select name="status">
-          ${['pending','in_progress','completed'].map(status => `<option value="${status}" ${status === todo.status ? 'selected' : ''}>${status}</option>`).join('')}
-        </select>
-        <input name="priority" type="number" value="${todo.priority}">
+    <div class="view">
+      <div class="card prose">
+        ${renderMarkdown(todo.description || '(no description)')}
       </div>
-      <input name="dueDate" type="date" value="${todo.due_date ? todo.due_date.slice(0, 10) : ''}">
-      <div>
-        <strong>Linked notes</strong>
-        <div class="meta">${(todo.notes || []).map((n) => escapeHtml(n.title)).join(', ') || 'None'}</div>
+      <div class="card meta-grid">
+        <div class="meta-item"><strong>Status</strong> ${escapeHtml(todo.status)}</div>
+        <div class="meta-item"><strong>Priority</strong> ${escapeHtml(String(todo.priority))}</div>
+        <div class="meta-item"><strong>Due</strong> ${todo.due_date ? escapeHtml(todo.due_date.slice(0, 10)) : 'None'}</div>
+        <div class="meta-item"><strong>Completed</strong> ${todo.completed_at ? escapeHtml(todo.completed_at.slice(0, 10)) : 'No'}</div>
+        ${renderMetaList('Linked notes', (todo.notes || []).map((n) => n.title))}
       </div>
     </div>`;
 }
@@ -173,6 +323,14 @@ async function deleteSelected() {
 document.addEventListener('click', async (event) => {
   if (event.target.id === 'themeToggle') {
     toggleTheme();
+    return;
+  }
+  if (event.target.id === 'viewTabBtn') {
+    setDetailTab('view');
+    return;
+  }
+  if (event.target.id === 'editTabBtn') {
+    setDetailTab('edit');
     return;
   }
   const item = event.target.closest('.item');

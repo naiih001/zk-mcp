@@ -54,6 +54,15 @@ button#themeToggle {
   border: 1px solid var(--line);
 }
 button.danger { background: var(--danger); }
+button.tab {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+button.tab.active {
+  background: var(--accent);
+  color: white;
+}
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .grid { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 20px; align-items: start; }
 .panel { border-radius: 24px; padding: 18px; min-height: 72vh; }
@@ -64,8 +73,51 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .item .meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .detail-body { display: grid; gap: 14px; }
 .empty { color: var(--muted); padding: 24px 0; }
+.view, .editor {
+  display: grid;
+  gap: 14px;
+}
 .editor { display: grid; gap: 12px; }
 .editor textarea { min-height: 280px; resize: vertical; }
+.view .card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.76);
+}
+.prose {
+  line-height: 1.65;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.prose pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  overflow: auto;
+  background: rgba(0,0,0,0.06);
+}
+.prose code {
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.06);
+}
+.prose h1, .prose h2, .prose h3, .prose h4 { margin: 0.8em 0 0.4em; }
+.prose ul, .prose ol { padding-left: 1.4em; }
+.prose blockquote {
+  margin: 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.meta-grid {
+  display: grid;
+  gap: 8px;
+}
+.meta-item strong {
+  display: inline-block;
+  min-width: 96px;
+}
 .row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
 .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .checklist { display: grid; gap: 8px; margin-top: 8px; }
