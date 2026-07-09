@@ -1,6 +1,7 @@
 const state = { notes: [], todos: [], selected: null, detailTab: 'view' };
 const $ = (id) => document.getElementById(id);
 const themeKey = 'zk-theme';
+let toastSeq = 0;
 
 function getPreferredTheme() {
   const saved = localStorage.getItem(themeKey);
@@ -22,6 +23,25 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   localStorage.setItem(themeKey, next);
   applyTheme(next);
+}
+
+function showToast(message, kind = 'success') {
+  const region = $('toastRegion');
+  if (!region) return;
+  const id = `toast_${++toastSeq}`;
+  const toast = document.createElement('div');
+  toast.className = `toast ${kind}`;
+  toast.dataset.toastId = id;
+  toast.innerHTML = `
+    <div>${escapeHtml(message)}</div>
+    <button type="button" aria-label="Dismiss notification">×</button>
+  `;
+  const remove = () => {
+    toast.remove();
+  };
+  toast.querySelector('button')?.addEventListener('click', remove);
+  region.appendChild(toast);
+  window.setTimeout(remove, 3000);
 }
 
 async function api(path, options = {}) {
@@ -286,29 +306,35 @@ function renderDetail() {
 async function saveSelected() {
   const selected = state.selected;
   if (!selected) return;
-  const editor = document.querySelector('.editor');
-  const formData = new FormData();
-  editor.querySelectorAll('input, textarea, select').forEach((el) => formData.append(el.name, el.value));
-  if (selected.kind === 'note') {
-    await api(`/api/notes/${encodeURIComponent(selected.id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ title: formData.get('title'), body: formData.get('body') }),
-    });
-    await openNote(selected.id);
-  } else {
-    await api(`/api/todos/${encodeURIComponent(selected.id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        title: formData.get('title'),
-        description: formData.get('description'),
-        status: formData.get('status'),
-        priority: Number(formData.get('priority') || 0),
-        dueDate: formData.get('dueDate') || null,
-      }),
-    });
-    await openTodo(selected.id);
+  try {
+    const editor = document.querySelector('.editor');
+    const formData = new FormData();
+    editor.querySelectorAll('input, textarea, select').forEach((el) => formData.append(el.name, el.value));
+    if (selected.kind === 'note') {
+      await api(`/api/notes/${encodeURIComponent(selected.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: formData.get('title'), body: formData.get('body') }),
+      });
+      await openNote(selected.id);
+    } else {
+      await api(`/api/todos/${encodeURIComponent(selected.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          title: formData.get('title'),
+          description: formData.get('description'),
+          status: formData.get('status'),
+          priority: Number(formData.get('priority') || 0),
+          dueDate: formData.get('dueDate') || null,
+        }),
+      });
+      await openTodo(selected.id);
+    }
+    await loadLists();
+    showToast(`${selected.kind === 'note' ? 'Note' : 'Todo'} saved`, 'success');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Save failed', 'error');
+    throw error;
   }
-  await loadLists();
 }
 
 async function deleteSelected() {
