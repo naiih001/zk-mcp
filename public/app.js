@@ -1,5 +1,28 @@
 const state = { notes: [], todos: [], selected: null };
 const $ = (id) => document.getElementById(id);
+const themeKey = 'zk-theme';
+
+function getPreferredTheme() {
+  const saved = localStorage.getItem(themeKey);
+  if (saved === 'dark' || saved === 'light') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+  const toggle = $('themeToggle');
+  if (toggle) {
+    toggle.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
+    toggle.setAttribute('aria-pressed', String(theme === 'dark'));
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(themeKey, next);
+  applyTheme(next);
+}
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -148,6 +171,10 @@ async function deleteSelected() {
 }
 
 document.addEventListener('click', async (event) => {
+  if (event.target.id === 'themeToggle') {
+    toggleTheme();
+    return;
+  }
   const item = event.target.closest('.item');
   if (item) {
     const kind = item.dataset.kind;
@@ -187,6 +214,7 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyTheme(getPreferredTheme());
   await loadLists();
   renderDetail();
 });
