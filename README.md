@@ -1,5 +1,7 @@
 # zk-mcp
 
+> **zk = Zettelkasten** — a personal knowledge-management note system (linking, tagging, and retrieving atomic notes). Not "zero-knowledge".
+
 A Zettelkasten note-taking system as an MCP (Model Context Protocol) server. Create, link, tag, search, and retrieve notes through any MCP client, including ChatGPT connectors and other MCP-compatible hosts.
 
 ## Quick Start
